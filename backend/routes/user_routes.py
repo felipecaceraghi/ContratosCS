@@ -35,8 +35,16 @@ def login():
 @jwt_required()
 def register():
     # Verifica se o usuário logado é admin
-    current_user = get_jwt_identity()
-    if not current_user.get('admin', False):
+    current_user_email = get_jwt_identity()
+    
+    # Buscar dados completos do usuário atual
+    user_service = UserService()
+    current_user_data = user_service.get_by_email(current_user_email)
+    
+    if "error" in current_user_data:
+        return jsonify({"error": "Usuário atual não encontrado"}), 404
+    
+    if not current_user_data.get('admin', False):
         return jsonify({"error": "Apenas administradores podem cadastrar usuários"}), 403
     
     data = request.get_json()
@@ -45,7 +53,6 @@ def register():
     password = data.get('password')
     admin = data.get('admin', False)  # Por padrão, não é admin
     
-    user_service = UserService()
     result = user_service.create_user(name, email, password, admin)
     
     if "error" in result:

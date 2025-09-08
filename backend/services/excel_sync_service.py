@@ -215,21 +215,6 @@ class ExcelSyncService:
             if header_row is None:
                 raise Exception("Não foi possível encontrar linha de cabeçalhos no Excel")
             
-            # Colunas extras para tabela companies_data (JSON)
-            extra_columns = [
-                'Sistema Financeiro', 'Sistema RH', 'Sistema Outros', 'Empresa aberta pela Go?',
-                'Contato Principal - Nome', 'Contato Principal - Cargo', 'Contato Principal - Email', 
-                'Contato Principal - Celular', 'Plano Contratado', 'SLA', 'BPO Contábil', 'BPO Fiscal',
-                'BPO Folha', 'BPO Financeiro', 'BPO RH', 'BPO CND', 'VL BPO Contábil', 'VL BPO Fiscal',
-                'VL BPO Folha', 'VL BPO Financeiro', 'VL BPO RH', 'VL BPO Legal', 'Honorário Mensal Total',
-                'Competência Inicial - Fixo', 'Diversos Inicial', 'Competência Diversos Inicial',
-                'VL Diversos Inicial', 'Implantação', 'Vencimento da Implantação', 'Forma Pgto.',
-                'VL Implantação', 'BPO Contábil Faturado', 'BPO Fiscal Faturado', 'BPO Folha Faturado',
-                'BPO Financeiro Faturado', 'BPO RH Faturado', 'BPO Legal Faturado', 'Diversos In. Faturado',
-                'Implantação Faturado', 'Closer', 'Prospector', 'Oridem do Lead', 'Observação do Closer',
-                'Motivo da Troca'
-            ]
-            
             # Encontrar índices das colunas
             headers = df.iloc[header_row].values
             print(f"🔍 Headers encontrados: {headers[:10]}...")  # Primeiros 10 headers
@@ -237,28 +222,63 @@ class ExcelSyncService:
             basic_col_indices = {}
             extra_col_indices = {}
             
-            # Busca mais flexível por colunas
+            # NOVA ESTRATÉGIA: Capturar TODAS as colunas da planilha
+            # Primeiro, identificar quais são as 3 colunas básicas
+            basic_col_indices = {}
+            
+            # Lista de possíveis nomes para as colunas básicas
+            basic_variants = {
+                'cod': ['código domínio', 'codigo dominio', 'código', 'codigo', 'cod', 'id'],
+                'name': ['nome fantasia', 'nome empresa', 'empresa', 'razão social', 'razao social', 'name'],
+                'group_name': ['grupo', 'group', 'nome grupo', 'grupo empresa']
+            }
+            
+            # Encontrar colunas básicas com busca flexível
+            for i, header in enumerate(headers):
+                if pd.isna(header):
+                    continue
+                    
+                header_str = str(header).strip().lower()
+                
+                for field, variants in basic_variants.items():
+                    if field not in basic_col_indices:  # Ainda não encontrou esta coluna
+                        for variant in variants:
+                            if variant in header_str:
+                                basic_col_indices[field] = i
+                                print(f"✅ Coluna básica mapeada: '{header}' -> {field}")
+                                break
+            
+            print(f"🔍 Colunas básicas encontradas: {basic_col_indices}")
+            
+            # Agora capturar TODAS as outras colunas como extras
+            all_extra_columns = {}
+            
             for i, header in enumerate(headers):
                 if pd.isna(header):
                     continue
                     
                 header_str = str(header).strip()
                 
-                # Buscar colunas básicas (busca parcial caso de variações)
-                for col_key, col_field in basic_columns.items():
-                    if col_key.lower() in header_str.lower() or header_str.lower() in col_key.lower():
-                        basic_col_indices[col_field] = i
-                        print(f"✅ Coluna básica mapeada: '{header_str}' -> {col_field}")
-                        break
+                # Pular se for coluna básica
+                if i in basic_col_indices.values():
+                    continue
+                    
+                # Pular se for coluna vazia ou inválida
+                if header_str == '' or header_str.lower() in ['unnamed', 'nan']:
+                    continue
                 
-                # Buscar colunas extras
-                for extra_col in extra_columns:
-                    if extra_col.lower() in header_str.lower() or header_str.lower() in extra_col.lower():
-                        extra_col_indices[extra_col] = i
-                        break
+                # Adicionar TODAS as outras colunas
+                all_extra_columns[header_str] = i
+                print(f"📋 Coluna extra capturada: '{header_str}' (índice {i})")
             
-            print(f"🔍 Colunas básicas encontradas: {basic_col_indices}")
-            print(f"🔍 Colunas extras encontradas: {len(extra_col_indices)} colunas")
+            print(f"🔍 Total de colunas extras capturadas: {len(all_extra_columns)}")
+            print(f"🔍 Campos extras: {list(all_extra_columns.keys())[:10]}...")  # Primeiros 10
+            
+            # Verificar se encontramos pelo menos a coluna 'cod'
+            if 'cod' not in basic_col_indices:
+                raise Exception("Coluna de código não encontrada no Excel. Verifique o formato do arquivo.")
+            
+            print(f"✅ Pronto para processar dados com {len(all_extra_columns)} campos extras")
             
             # Verificar se encontramos pelo menos a coluna 'cod'
             if 'cod' not in basic_col_indices:
@@ -287,19 +307,31 @@ class ExcelSyncService:
                         value = row.iloc[col_idx]
                         company[field] = str(value).strip() if not pd.isna(value) else None
                 
-                # Extrair dados extras para JSON
+                # Extrair dados extras para JSON usando TODAS as colunas extras
                 extra_data = {}
-                for col_name, col_idx in extra_col_indices.items():
+                for col_name, col_idx in all_extra_columns.items():
                     if col_idx < len(row):
                         value = row.iloc[col_idx]
-                        extra_data[col_name] = str(value).strip() if not pd.isna(value) else None
+                        # Preservar valor original se não for nulo
+                        if not pd.isna(value) and str(value).strip() != '':
+                            extra_data[col_name] = str(value).strip()
+                        else:
+                            extra_data[col_name] = None
                 
                 # Adicionar dados extras ao company
                 company['extra_data'] = extra_data
                 
+                # Debug: mostrar campos capturados para primeira empresa
+                if len(companies) == 0:
+                    print(f"📋 DEBUG: Primeira empresa capturada com {len(extra_data)} campos extras:")
+                    for key, value in list(extra_data.items())[:10]:  # Primeiros 10
+                        print(f"  {key}: {value}")
+                    if len(extra_data) > 10:
+                        print(f"  ... e mais {len(extra_data) - 10} campos")
+                
                 if company.get('cod') and company['cod'].strip():  # Só adicionar se tiver código válido
                     companies.append(company)
-                    print(f"✅ Empresa adicionada: {company['cod']} - {company.get('name', 'N/A')}")
+                    print(f"✅ Empresa adicionada: {company['cod']} - {company.get('name', 'N/A')} ({len(extra_data)} campos)")
             
             print(f"📋 {len(companies)} empresas encontradas no Excel")
             
@@ -314,6 +346,28 @@ class ExcelSyncService:
         except Exception as e:
             print(f"❌ Erro ao processar Excel: {e}")
             raise
+    
+    def _similar_strings(self, str1, str2):
+        """
+        Verifica se duas strings são similares (para detecção de colunas)
+        """
+        # Remover acentos, espaços e caracteres especiais para comparação
+        import re
+        clean1 = re.sub(r'[^\w]', '', str1.lower())
+        clean2 = re.sub(r'[^\w]', '', str2.lower())
+        
+        # Verificar se uma contém a outra (75% ou mais)
+        if len(clean1) == 0 or len(clean2) == 0:
+            return False
+            
+        # Calcular similaridade simples
+        longer = clean1 if len(clean1) > len(clean2) else clean2
+        shorter = clean2 if len(clean1) > len(clean2) else clean1
+        
+        if len(shorter) / len(longer) >= 0.75:
+            return shorter in longer
+            
+        return False
     
     def _sync_to_database(self, companies_data):
         """

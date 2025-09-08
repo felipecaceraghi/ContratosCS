@@ -1,0 +1,12 @@
+.searchInput {
+  color: #000000 !important;
+  background-color: #ffffff !important;
+}
+
+.searchInput::placeholder {
+  color: #9ca3af !important;
+}
+
+.searchInput:focus {
+  color: #000000 !important;
+}
