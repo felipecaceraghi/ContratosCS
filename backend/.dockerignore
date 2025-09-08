@@ -1,0 +1,39 @@
+# Ambiente virtual
+env/
+venv/
+
+# Git
+.git/
+.gitignore
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# Testes
+tests/
+
+# Logs
+*.log
+
+# Arquivos temporários
+.tmp/
+*.tmp
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Documentação
+README.md
+
+# Outros
+.env
+.env.example

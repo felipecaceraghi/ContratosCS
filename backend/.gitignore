@@ -1,0 +1,26 @@
+# Ambiente virtual
+env/
+venv/
+
+# Arquivos de ambiente
+.env
+.env.local
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Testes
+.pytest_cache/
+.coverage
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Banco de dados local (opcional, dependendo se quer versionar)
+# infra/contracts.db
