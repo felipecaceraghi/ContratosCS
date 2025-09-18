@@ -260,13 +260,13 @@ class ContractGenerationService:
             endereco_padrao = "Av. Dr. Cardoso de Melo, nº 1608, 8º andar, 81-B, Vila Olímpia, São Paulo/SP, CEP: 04548-005"
             fallback_text = (
                 f"a) GF SERVICOS DE CONTABILIDADE LTDA., inscrita no CNPJ sob o nº 36.583.021/0001-24, com sede à {endereco_padrao}; "
-                f"b) E. REEVE MUSK SERVICOS DE CONTABILIDADE LTDA., inscrita no CNPJ sob o nº 40.897.585/0001-09, com sede à {endereco_padrao}; "
-                f"e c) HR HILL SERVICOS ADMINISTRATIVOS LTDA., inscrita no CNPJ sob o nº 36.446.561/0001-66, com sede à {endereco_padrao}"
+                f"b) E. REEVE MUSK SERVIÇOS DE CONTABILIDADE LTDA., inscrita no CNPJ sob o nº 40.897.585/0001-09, com sede à {endereco_padrao}; "
+                f"e c) HR HILL SERVIÇOS ADMINISTRATIVOS LTDA., inscrita no CNPJ sob o nº 36.446.561/0001-66, com sede à {endereco_padrao}"
             )
             fallback_companies = [
-                {"nome": "GF SERVICOS DE CONTABILIDADE LTDA.", "cnpj": "36.583.021/0001-24"},
-                {"nome": "E. REEVE MUSK SERVICOS DE CONTABILIDADE LTDA.", "cnpj": "40.897.585/0001-09"},
-                {"nome": "HR HILL SERVICOS ADMINISTRATIVOS LTDA.", "cnpj": "36.446.561/0001-66"}
+                {"nome": "GF SERVIÇOS DE CONTABILIDADE LTDA.", "cnpj": "36.583.021/0001-24"},
+                {"nome": "E. REEVE MUSK SERVIÇOS DE CONTABILIDADE LTDA.", "cnpj": "40.897.585/0001-09"},
+                {"nome": "HR HILL SERVIÇOS ADMINISTRATIVOS LTDA.", "cnpj": "36.446.561/0001-66"}
             ]
             return fallback_text, fallback_companies
     
@@ -319,33 +319,25 @@ class ContractGenerationService:
             
             logger.info(f"Campos a serem substituídos: {list(field_mapping.keys())}")
             
-            # Substituir campos nos parágrafos
+            # Substituir campos nos parágrafos (atualizado para negrito)
             total_replacements = 0
             for i, paragraph in enumerate(doc.paragraphs):
-                # Verificar se é o parágrafo das empresas BPO (contém o texto fixo)
                 if 'S.JOBS SERVIÇOS DE CONTABILIDADE LTDA.' in paragraph.text and 'E. REEVE MUSK SERVICOS' in paragraph.text:
                     logger.info(f"Substituindo parágrafo {i} com texto dinâmico das empresas BPO")
                     paragraph.text = empresas_bpo_texto
                     total_replacements += 1
-                # Remover textos indesejados
                 elif 'ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO' in paragraph.text:
                     logger.info(f"Removendo parágrafo {i} com texto indesejado")
                     paragraph.text = ""  # Limpar o parágrafo
                     total_replacements += 1
                 elif paragraph.text:
-                    # Substituições normais de placeholders
-                    original_text = paragraph.text
-                    new_text = original_text
-                    
-                    for placeholder, value in field_mapping.items():
-                        if placeholder in new_text:
-                            new_text = new_text.replace(placeholder, str(value))
-                            total_replacements += 1
-                            logger.debug(f"Substituído '{placeholder}' por '{value[:50]}...' no parágrafo")
-                    
-                    # Se houve alterações, atualizar o parágrafo
-                    if new_text != original_text:
-                        paragraph.text = new_text
+                    for run in paragraph.runs:
+                        for placeholder, value in field_mapping.items():
+                            if placeholder in run.text:
+                                run.text = run.text.replace(placeholder, str(value))
+                                run.bold = True
+                                total_replacements += 1
+                                logger.debug(f"Substituído '{placeholder}' por '{value[:50]}...' em run do parágrafo")
             
             # Verificar se também há campos em tabelas
             for table in doc.tables:

@@ -2,13 +2,13 @@ services:
   app:
     build: .
     ports:
-      - "5004:5000"  # Mapear porta host 5004 para container 5000
+      - "5004:5004"  # Mapear porta host 5004 para container 5000
     volumes:
       - .:/app
       - ./infra:/app/infra  # Para persistir o banco SQLite
     environment:
       - FLASK_ENV=development
-      - PORT=5000  # Porta dentro do container
+      - PORT=5004  # Porta dentro do container
     env_file:
       - .env
     command: python app.py
