@@ -12,7 +12,7 @@ companies_bp = Blueprint('companies', __name__, url_prefix='/companies')
 @jwt_required()
 def search_companies():
     """
-    Endpoint para buscar empresas por nome ou código
+    Endpoint para buscar grupos de empresas por group_name
     GET /companies/search?q=termo
     """
     try:
@@ -28,23 +28,66 @@ def search_companies():
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        # Buscar empresas por código ou nome (case insensitive)
+        # Buscar apenas grupos únicos por group_name (case insensitive)
         search_term = f"%{query}%"
+        cursor.execute('''
+            SELECT DISTINCT group_name, COUNT(*) as company_count
+            FROM companies 
+            WHERE LOWER(group_name) LIKE LOWER(?) 
+              AND group_name IS NOT NULL 
+              AND group_name != ''
+            GROUP BY group_name
+            ORDER BY 
+                CASE 
+                    WHEN LOWER(group_name) LIKE LOWER(?) THEN 1
+                    ELSE 2
+                END,
+                group_name ASC
+            LIMIT 20
+        ''', (search_term, f"{query}%"))
+        
+        groups = []
+        for row in cursor.fetchall():
+            groups.append({
+                "cod": row[0],  # Usando group_name como identificador
+                "name": row[0], # group_name como nome também
+                "group_name": row[0],
+                "company_count": row[1]  # Quantidade de empresas no grupo
+            })
+        
+        conn.close()
+        
+        return jsonify({
+            "status": "success",
+            "companies": groups,  # Mantendo o nome "companies" para compatibilidade
+            "total": len(groups)
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"Erro interno: {str(e)}"
+        }), 500
+
+@companies_bp.route('/group/<group_name>/companies', methods=['GET'])
+@jwt_required()
+def get_companies_by_group(group_name):
+    """
+    Endpoint para listar todas as empresas de um grupo específico
+    GET /companies/group/NOME_GRUPO/companies
+    """
+    try:
+        db_path = os.getenv('DATABASE_PATH', 'infra/contracts.db')
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Buscar todas as empresas do grupo
         cursor.execute('''
             SELECT cod, name, group_name 
             FROM companies 
-            WHERE LOWER(cod) LIKE LOWER(?) 
-               OR LOWER(name) LIKE LOWER(?) 
-               OR LOWER(group_name) LIKE LOWER(?)
-            ORDER BY 
-                CASE 
-                    WHEN LOWER(cod) LIKE LOWER(?) THEN 1
-                    WHEN LOWER(name) LIKE LOWER(?) THEN 2
-                    ELSE 3
-                END,
-                name ASC
-            LIMIT 20
-        ''', (search_term, search_term, search_term, f"{query}%", f"{query}%"))
+            WHERE group_name = ?
+            ORDER BY name ASC
+        ''', (group_name,))
         
         companies = []
         for row in cursor.fetchall():
@@ -58,6 +101,7 @@ def search_companies():
         
         return jsonify({
             "status": "success",
+            "group_name": group_name,
             "companies": companies,
             "total": len(companies)
         })

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Teste de Tabela</title>
+    <style>
+        table { border-collapse: collapse; width: 100%; margin: 20px 0; }
+        td, th { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        tr:first-child { background-color: #f2f2f2; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Teste de Processamento de Tabela</h1>
+    <div id="content"></div>
+
+    <script>
+        const content = `[TABELA_JSON][["ÁREA CONTÁBIL", "ÁREA CONTÁBIL", "ÁREA CONTÁBIL"], ["ATIVIDADES / INFORMAÇÕES", "PERIODICIDADE", "PRAZO"], ["Planilha de conciliação bancária", "Mensal", "3º Dia¹"]][/TABELA_JSON]`;
+        
+        function processTableContent(content) {
+            const parts = content.split(/(\[TABELA_JSON\][\s\S]*?\[\/TABELA_JSON\])/);
+            
+            return parts.map((part, index) => {
+                const tableMatch = part.match(/\[TABELA_JSON\]([\s\S]*?)\[\/TABELA_JSON\]/);
+                
+                if (tableMatch) {
+                    try {
+                        const jsonString = tableMatch[1].trim();
+                        console.log('JSON extraído:', jsonString);
+                        
+                        const tableData = JSON.parse(jsonString);
+                        
+                        if (tableData && Array.isArray(tableData) && tableData.length > 0) {
+                            let html = '<table>';
+                            tableData.forEach((row, rowIndex) => {
+                                html += '<tr>';
+                                row.forEach(cell => {
+                                    html += `<td>${cell}</td>`;
+                                });
+                                html += '</tr>';
+                            });
+                            html += '</table>';
+                            return html;
+                        }
+                    } catch (e) {
+                        console.error('Erro:', e);
+                        return '<p style="color: red;">Erro ao carregar tabela</p>';
+                    }
+                }
+                
+                return part;
+            }).join('');
+        }
+        
+        document.getElementById('content').innerHTML = processTableContent(content);
+    </script>
+</body>
+</html>

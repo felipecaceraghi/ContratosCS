@@ -6,6 +6,8 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 import logging
 import os
 import tempfile
+import sqlite3
+import json
 from services.contract_generation_service import ContractGenerationService
 from services.excel_sync_service import ExcelSyncService
 from models.companies import get_company_details, search_companies
@@ -20,20 +22,27 @@ contracts_bp = Blueprint('contracts', __name__)
 @jwt_required()
 def generate_contract():
     """
-    Gera um contrato para uma empresa específica
+    Gera contratos para uma empresa específica ou para todas as empresas de um grupo
     """
     try:
         user_id = get_jwt_identity()
         data = request.get_json()
         
-        if not data or 'cnpj' not in data:
+        if not data:
             return jsonify({
                 'success': False,
-                'error': 'CNPJ é obrigatório'
+                'error': 'Dados são obrigatórios'
             }), 400
         
-        cnpj = data['cnpj']
-        logger.info(f"Usuário {user_id} solicitou geração de contrato para CNPJ: {cnpj}")
+        # Verificar se é geração por CNPJ individual ou por grupo
+        cnpj = data.get('cnpj')
+        group_name = data.get('group_name')
+        
+        if not cnpj and not group_name:
+            return jsonify({
+                'success': False,
+                'error': 'CNPJ ou group_name é obrigatório'
+            }), 400
         
         # Primeiro, sincronizar dados do SharePoint para garantir informações atualizadas
         try:
@@ -44,28 +53,200 @@ def generate_contract():
             logger.warning(f"Erro na sincronização SharePoint: {str(sync_error)}")
             # Continuar mesmo com erro de sincronização
         
-        # Buscar dados da empresa
-        company_data = get_company_details(cnpj)
+        if group_name:
+            # Geração por grupo - buscar todas as empresas do grupo
+            logger.info(f"Usuário {user_id} solicitou geração de contratos para grupo: {group_name}")
+            
+            import sqlite3
+            db_path = os.getenv('DATABASE_PATH', 'infra/contracts.db')
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # Buscar todas as empresas do grupo
+            cursor.execute('''
+                SELECT * FROM companies_data 
+                WHERE group_name = ?
+                ORDER BY cod
+            ''', (group_name,))
+            
+            companies = cursor.fetchall()
+            conn.close()
+            
+            if not companies:
+                return jsonify({
+                    'success': False,
+                    'error': f'Nenhuma empresa encontrada no grupo: {group_name}'
+                }), 404
+            
+            # Retornar lista de empresas para geração individual no frontend
+            companies_list = []
+            for company in companies:
+                company_dict = dict(company)
+                
+                # Parse do JSON armazenado no campo companie_data
+                import json
+                if company_dict.get('companie_data'):
+                    try:
+                        parsed_data = json.loads(company_dict['companie_data'])
+                        company_dict['companie_data'] = parsed_data
+                    except json.JSONDecodeError:
+                        company_dict['companie_data'] = {}
+                else:
+                    company_dict['companie_data'] = {}
+                
+                companies_list.append(company_dict)
+            
+            return jsonify({
+                'success': True,
+                'type': 'group',
+                'message': f'Encontradas {len(companies_list)} empresas no grupo {group_name}',
+                'group_name': group_name,
+                'companies': companies_list,
+                'total_companies': len(companies_list)
+            })
         
-        if not company_data:
+        else:
+            # Geração individual por CNPJ (comportamento original)
+            logger.info(f"Usuário {user_id} solicitou geração de contrato para CNPJ: {cnpj}")
+            
+            # Buscar dados da empresa
+            company_data = get_company_details(cnpj)
+            
+            if not company_data:
+                return jsonify({
+                    'success': False,
+                    'error': 'Empresa não encontrada'
+                }), 404
+            
+            logger.info(f"Dados da empresa encontrados: {company_data.get('razao_social', 'N/A')}")
+            
+            # Validar se há dados suficientes para geração do contrato
+            required_fields = ['razao_social', 'cnpj']
+            missing_fields = []
+            
+            for field in required_fields:
+                if not company_data.get(field):
+                    missing_fields.append(field)
+            
+            # Para endereço, usar exatamente o campo "Endereço" como especificado
+            endereco = company_data.get('Endereço')
+            
+            if not endereco:
+                missing_fields.append('endereco')
+            
+            if missing_fields:
+                return jsonify({
+                    'success': False,
+                    'error': f'Dados insuficientes para gerar contrato. Campos ausentes: {", ".join(missing_fields)}',
+                    'missing_fields': missing_fields
+                }), 400
+            
+            # Preparar dados para o template
+            contract_data = {
+                'razao_social': company_data.get('Razão Social'),  # Campo exato como especificado
+                'cnpj': company_data.get('CNPJ'),                  # Campo exato como especificado
+                'endereco': endereco                               # Campo "Endereço" como especificado
+            }
+            
+            logger.info(f"Dados preparados para contrato: {contract_data}")
+            
+            # Gerar contrato
+            contract_service = ContractGenerationService()
+            contract_path = contract_service.generate_contract(contract_data)
+            
+            # Retornar informações do arquivo gerado
+            filename = os.path.basename(contract_path)
+            
+            return jsonify({
+                'success': True,
+                'type': 'individual',
+                'message': 'Contrato gerado com sucesso',
+                'contract_file': filename,
+                'download_url': f'/api/contracts/download/{filename}',
+                'company_data': {
+                    'razao_social': contract_data['razao_social'],
+                    'cnpj': contract_data['cnpj']
+                }
+            })
+        
+    except ValueError as ve:
+        logger.error(f"Erro de validação: {str(ve)}")
+        return jsonify({
+            'success': False,
+            'error': str(ve)
+        }), 400
+        
+    except Exception as e:
+        logger.error(f"Erro interno ao gerar contrato: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Erro interno do servidor'
+        }), 500
+
+@contracts_bp.route('/generate-individual', methods=['POST'])
+@jwt_required()
+def generate_individual_contract():
+    """
+    Gera um contrato para uma empresa específica usando código da empresa
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        if not data or 'cod' not in data:
             return jsonify({
                 'success': False,
-                'error': 'Empresa não encontrada'
+                'error': 'Código da empresa é obrigatório'
+            }), 400
+        
+        cod = data['cod']
+        logger.info(f"Usuário {user_id} solicitou geração de contrato para empresa: {cod}")
+        
+        # Buscar dados da empresa na tabela companies_data
+        db_path = os.getenv('DATABASE_PATH', 'infra/contracts.db')
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT * FROM companies_data 
+            WHERE cod = ?
+        ''', (cod,))
+        
+        company_row = cursor.fetchone()
+        conn.close()
+        
+        if not company_row:
+            return jsonify({
+                'success': False,
+                'error': f'Empresa com código {cod} não encontrada'
             }), 404
         
-        logger.info(f"Dados da empresa encontrados: {company_data.get('razao_social', 'N/A')}")
+        # Converter para dict e parsear JSON
+        company_dict = dict(company_row)
+        if company_dict.get('companie_data'):
+            try:
+                parsed_data = json.loads(company_dict['companie_data'])
+                company_dict['companie_data'] = parsed_data
+            except json.JSONDecodeError:
+                company_dict['companie_data'] = {}
+        else:
+            company_dict['companie_data'] = {}
         
-        # Validar se há dados suficientes para geração do contrato
-        required_fields = ['razao_social', 'cnpj']
+        # Extrair dados necessários para o contrato
+        companie_data = company_dict['companie_data']
+        
+        # Validar campos obrigatórios
+        razao_social = companie_data.get('Razão Social') or companie_data.get('razao_social')
+        cnpj = companie_data.get('CNPJ') or companie_data.get('cnpj')
+        endereco = companie_data.get('Endereço') or companie_data.get('endereco')
+        
         missing_fields = []
-        
-        for field in required_fields:
-            if not company_data.get(field):
-                missing_fields.append(field)
-        
-        # Para endereço, usar exatamente o campo "Endereço" como especificado
-        endereco = company_data.get('Endereço')
-        
+        if not razao_social:
+            missing_fields.append('razao_social')
+        if not cnpj:
+            missing_fields.append('cnpj')
         if not endereco:
             missing_fields.append('endereco')
         
@@ -73,14 +254,15 @@ def generate_contract():
             return jsonify({
                 'success': False,
                 'error': f'Dados insuficientes para gerar contrato. Campos ausentes: {", ".join(missing_fields)}',
-                'missing_fields': missing_fields
+                'missing_fields': missing_fields,
+                'available_data': list(companie_data.keys()) if companie_data else []
             }), 400
         
         # Preparar dados para o template
         contract_data = {
-            'razao_social': company_data.get('Razão Social'),  # Campo exato como especificado
-            'cnpj': company_data.get('CNPJ'),                  # Campo exato como especificado
-            'endereco': endereco                               # Campo "Endereço" como especificado
+            'razao_social': razao_social,
+            'cnpj': cnpj,
+            'endereco': endereco
         }
         
         logger.info(f"Dados preparados para contrato: {contract_data}")
@@ -98,20 +280,14 @@ def generate_contract():
             'contract_file': filename,
             'download_url': f'/api/contracts/download/{filename}',
             'company_data': {
-                'razao_social': contract_data['razao_social'],
-                'cnpj': contract_data['cnpj']
+                'cod': cod,
+                'razao_social': razao_social,
+                'cnpj': cnpj
             }
         })
         
-    except ValueError as ve:
-        logger.error(f"Erro de validação: {str(ve)}")
-        return jsonify({
-            'success': False,
-            'error': str(ve)
-        }), 400
-        
     except Exception as e:
-        logger.error(f"Erro interno ao gerar contrato: {str(e)}")
+        logger.error(f"Erro interno ao gerar contrato individual: {str(e)}")
         return jsonify({
             'success': False,
             'error': 'Erro interno do servidor'
@@ -365,6 +541,61 @@ def update_contract_content(filename):
         
     except Exception as e:
         logger.error(f"Erro ao atualizar contrato: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': 'Erro interno do servidor'
+        }), 500
+
+@contracts_bp.route('/save-edits/<filename>', methods=['POST'])
+@jwt_required()
+def save_contract_edits(filename):
+    """
+    Salva as edições feitas no contrato
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        if not data or 'content' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Conteúdo é obrigatório'
+            }), 400
+        
+        logger.info(f"Usuário {user_id} salvando edições do arquivo: {filename}")
+        
+        # Validar nome do arquivo
+        if not filename.endswith('.docx') or '..' in filename or '/' in filename:
+            return jsonify({
+                'success': False,
+                'error': 'Nome de arquivo inválido'
+            }), 400
+        
+        # Caminho do arquivo original
+        original_path = os.path.join(tempfile.gettempdir(), filename)
+        
+        if not os.path.exists(original_path):
+            return jsonify({
+                'success': False,
+                'error': 'Arquivo original não encontrado'
+            }), 404
+        
+        # Aplicar edições
+        contract_service = ContractGenerationService()
+        edited_path = contract_service.apply_text_edits(original_path, data['content'])
+        
+        # Retornar informações do arquivo editado
+        edited_filename = os.path.basename(edited_path)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Edições salvas com sucesso',
+            'edited_file': edited_filename,
+            'download_url': f'/api/contracts/download/{edited_filename}'
+        })
+        
+    except Exception as e:
+        logger.error(f"Erro ao salvar edições: {str(e)}")
         return jsonify({
             'success': False,
             'error': 'Erro interno do servidor'

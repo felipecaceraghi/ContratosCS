@@ -2,7 +2,7 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #000000;
 }
 
 @theme inline {
@@ -12,31 +12,37 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* Force black text for search input */
-.force-black-text {
+/* Ensure all text is black */
+* {
+  color: #000000 !important;
+}
+
+/* Force black text for inputs */
+input, textarea, select {
   color: #000000 !important;
   -webkit-text-fill-color: #000000 !important;
 }
 
-.force-black-text:focus {
+input:focus, textarea:focus, select:focus {
   color: #000000 !important;
   -webkit-text-fill-color: #000000 !important;
 }
 
-.force-black-text::selection {
-  color: #000000 !important;
-  -webkit-text-fill-color: #000000 !important;
+/* Specific exceptions for buttons and links */
+button {
+  color: inherit !important;
+}
+
+a {
+  color: #0066cc !important;
+}
+
+a:hover {
+  color: #004499 !important;
 }

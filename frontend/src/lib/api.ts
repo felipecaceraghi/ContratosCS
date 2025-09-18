@@ -91,6 +91,11 @@ export const companiesAPI = {
     return response.data;
   },
 
+  getCompaniesByGroup: async (groupName: string) => {
+    const response = await api.get(`/companies/group/${encodeURIComponent(groupName)}/companies`);
+    return response.data;
+  },
+
   getDetails: async (cod: string) => {
     const response = await api.get(`/companies/${cod}`);
     return response.data;
@@ -114,6 +119,16 @@ export const contractsAPI = {
     return response.data;
   },
 
+  generateByGroup: async (groupName: string) => {
+    const response = await api.post('/api/contracts/generate', { group_name: groupName });
+    return response.data;
+  },
+
+  generateIndividual: async (cod: string) => {
+    const response = await api.post('/api/contracts/generate-individual', { cod });
+    return response.data;
+  },
+
   preview: async (cnpj: string) => {
     const response = await api.post('/api/contracts/preview', { cnpj });
     return response.data;
@@ -131,8 +146,8 @@ export const contractsAPI = {
     return response.data;
   },
 
-  updateContract: async (filename: string, content: string) => {
-    const response = await api.post(`/api/contracts/update/${filename}`, { content });
+  saveEdits: async (filename: string, content: string) => {
+    const response = await api.post(`/api/contracts/save-edits/${filename}`, { content });
     return response.data;
   },
 

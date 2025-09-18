@@ -4,8 +4,9 @@ import { useAuth } from '@/lib/auth';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import LoadingSpinner from '@/components/LoadingSpinner';
-import CompanySearchMultiple from '@/components/CompanySearchMultiple';
+import GroupCompanySearch from '@/components/GroupCompanySearch';
 import ContractGenerator from '@/components/ContractGenerator';
+import TableTestComponent from '@/components/TableTestComponent';
 import { sharepointAPI, companiesAPI } from '@/lib/api';
 import { SharePointStatus, SyncResult, Company } from '@/types';
 
@@ -159,10 +160,10 @@ export default function DashboardPage() {
             <div className="space-y-6">
               {/* Busca de Empresas */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Buscar Empresas</h3>
-                <CompanySearchMultiple 
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Buscar Empresas por Grupo</h3>
+                <GroupCompanySearch 
                   onCompaniesSelect={handleCompaniesSelect}
-                  placeholder="Digite o código, CNPJ ou nome da empresa (mín. 3 caracteres)"
+                  placeholder="Digite o nome do grupo (mín. 3 caracteres)"
                   selectedCompanies={selectedCompanies}
                 />
               </div>
@@ -333,6 +334,12 @@ export default function DashboardPage() {
                     </div>
                   </div>
                 )}
+              </div>
+              
+              {/* COMPONENTE DE TESTE - REMOVER DEPOIS */}
+              <div className="bg-yellow-100 border border-yellow-400 rounded-lg p-4 mt-4">
+                <h3 className="text-lg font-bold text-yellow-800 mb-2">🧪 TESTE DE TABELAS</h3>
+                <TableTestComponent />
               </div>
             </>
           )}
