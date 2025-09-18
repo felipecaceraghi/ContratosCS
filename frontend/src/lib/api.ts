@@ -155,6 +155,12 @@ export const contractsAPI = {
     const response = await api.get('/api/contracts/template/info');
     return response.data;
   },
+
+  applyEdits: async (filename: string, fields: { razao_social: string; cnpj: string; endereco: string }) => {
+    // Envia os campos editados para o backend
+    const response = await api.post(`/api/contracts/apply-edits/${filename}`, fields);
+    return response.data;
+  },
 };
 
 export default api;
