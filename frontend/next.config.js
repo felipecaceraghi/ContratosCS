@@ -2,7 +2,6 @@
 const nextConfig = {
   // Configurações do Next.js
   turbopack: {
-    enabled: true,
     rules: {
       '*.svg': {
         loaders: ['@svgr/webpack'],
