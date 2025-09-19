@@ -516,13 +516,22 @@ class ContractGenerationService:
             doc = Document(file_path)
             content_lines = []
             
+            logger.info("Extraindo conteúdo do documento para edição...")
+            
             # Processar elementos na ordem que aparecem no documento
             for element in doc.element.body:
                 if isinstance(element, CT_P):
                     # É um parágrafo
                     paragraph = Paragraph(element, doc)
-                    if paragraph.text.strip():
-                        content_lines.append(paragraph.text)
+                    paragraph_text = paragraph.text.strip()
+                    
+                    # Incluir TODOS os parágrafos, mesmo vazios (para manter correspondência)
+                    if paragraph_text:
+                        content_lines.append(paragraph_text)
+                        logger.debug(f"Parágrafo extraído: '{paragraph_text}'")
+                    else:
+                        # Parágrafos vazios também são importantes para manter estrutura
+                        content_lines.append("")
                     
                 elif isinstance(element, CT_Tbl):
                     # É uma tabela - converter para JSON
@@ -545,12 +554,17 @@ class ContractGenerationService:
                     if has_content and table_rows:
                         # Converter tabela para JSON que o frontend pode processar
                         table_json = json.dumps(table_rows, ensure_ascii=False)
+                        logger.debug(f"Tabela extraída com {len(table_rows)} linhas e {max(len(row) for row in table_rows) if table_rows else 0} colunas")
+                        
                         # Adicionar quebras de linha antes e depois para garantir que fique isolado
                         content_lines.append('')  # Linha em branco antes
                         content_lines.append(f"[TABELA_JSON]{table_json}[/TABELA_JSON]")
                         content_lines.append('')  # Linha em branco depois
             
-            return '\n'.join(content_lines)
+            final_content = '\n'.join(content_lines)
+            logger.info(f"Extração concluída: {len(content_lines)} linhas totais")
+            
+            return final_content
             
         except Exception as e:
             logger.error(f"Erro ao extrair conteúdo: {str(e)}")
@@ -759,6 +773,7 @@ class ContractGenerationService:
             table_edits = {}
             table_index = 0
             
+            # Extrair dados das tabelas editadas
             for line_idx, line in enumerate(new_lines):
                 if "[TABELA_JSON]" in line:
                     json_match = re.search(r'\[TABELA_JSON\](.*?)\[/TABELA_JSON\]', line)
@@ -766,6 +781,7 @@ class ContractGenerationService:
                         try:
                             table_data = json.loads(json_match.group(1))
                             table_edits[table_index] = table_data
+                            logger.info(f"Tabela {table_index} mapeada com {len(table_data)} linhas")
                             table_index += 1
                         except json.JSONDecodeError as e:
                             logger.error(f"Erro ao decodificar JSON da tabela: {e}")
@@ -777,76 +793,94 @@ class ContractGenerationService:
             from docx.text.paragraph import Paragraph
             
             current_table_index = 0
-            paragraph_content = []
             
-            # Coletar texto dos parágrafos do novo conteúdo (excluindo marcadores de tabela)
+            # Coletar APENAS texto dos parágrafos do novo conteúdo (excluindo marcadores de tabela e linhas vazias)
+            paragraph_content = []
             for line in new_lines:
-                if not ("[TABELA_JSON]" in line or line.strip() == ""):
+                line_clean = line.strip()
+                if line_clean and not ("[TABELA_JSON]" in line or "[/TABELA_JSON]" in line):
                     paragraph_content.append(line)
             
             paragraph_index = 0
+            
+            logger.info(f"Total de parágrafos editados: {len(paragraph_content)}")
+            logger.info(f"Total de tabelas editadas: {len(table_edits)}")
             
             # Percorrer elementos do documento na ordem original
             for element in doc.element.body:
                 if isinstance(element, CT_P):
                     # É um parágrafo - atualizar texto preservando formatação
                     paragraph = Paragraph(element, doc)
+                    original_text = paragraph.text.strip()
                     
-                    # Se há conteúdo editado para este parágrafo
-                    if paragraph_index < len(paragraph_content):
-                        new_text = paragraph_content[paragraph_index]
+                    # Só processar parágrafos que têm conteúdo original
+                    if original_text:
+                        if paragraph_index < len(paragraph_content):
+                            new_text = paragraph_content[paragraph_index]
+                            
+                            logger.debug(f"Parágrafo {paragraph_index}: '{original_text}' -> '{new_text}'")
+                            
+                            # Limpar runs existentes preservando formatação do primeiro run
+                            if paragraph.runs and new_text.strip():
+                                # Manter formatação do primeiro run
+                                first_run = paragraph.runs[0]
+                                original_font = first_run.font
+                                
+                                # Limpar outros runs (mas preservar o primeiro)
+                                while len(paragraph.runs) > 1:
+                                    p = paragraph._element
+                                    p.remove(paragraph.runs[-1]._element)
+                                
+                                # Atualizar texto do primeiro run mantendo formatação
+                                first_run.text = new_text
+                                
+                            elif new_text.strip():
+                                # Se não há runs, mas há texto novo, criar run com formatação padrão
+                                paragraph.clear()
+                                run = paragraph.add_run(new_text)
                         
-                        # Limpar runs existentes preservando formatação do primeiro run
-                        if paragraph.runs and new_text.strip():
-                            # Manter formatação do primeiro run
-                            first_run = paragraph.runs[0]
-                            
-                            # Limpar outros runs
-                            for i in range(len(paragraph.runs) - 1, 0, -1):
-                                p = paragraph._element
-                                p.remove(paragraph.runs[i]._element)
-                            
-                            # Atualizar texto do primeiro run
-                            first_run.text = new_text
-                        elif new_text.strip():
-                            # Se não há runs, criar um novo
-                            paragraph.text = new_text
-                    
-                    if paragraph.text.strip():  # Só avançar se o parágrafo tem conteúdo
                         paragraph_index += 1
                         
                 elif isinstance(element, CT_Tbl):
                     # É uma tabela - atualizar células preservando formatação
                     table = Table(element, doc)
                     
+                    logger.debug(f"Processando tabela {current_table_index}")
+                    
                     if current_table_index in table_edits:
                         new_table_data = table_edits[current_table_index]
+                        
+                        logger.info(f"Atualizando tabela {current_table_index} com {len(new_table_data)} linhas")
                         
                         # Atualizar células preservando formatação
                         for row_idx, row in enumerate(table.rows):
                             if row_idx < len(new_table_data):
                                 for col_idx, cell in enumerate(row.cells):
                                     if col_idx < len(new_table_data[row_idx]):
-                                        new_cell_text = str(new_table_data[row_idx][col_idx])
+                                        new_cell_text = str(new_table_data[row_idx][col_idx]).strip()
                                         
-                                        # Preservar formatação da célula
-                                        for paragraph in cell.paragraphs:
-                                            if paragraph.runs:
+                                        logger.debug(f"Célula [{row_idx}][{col_idx}]: '{cell.text.strip()}' -> '{new_cell_text}'")
+                                        
+                                        # Limpar conteúdo da célula mas preservar formatação
+                                        for cell_paragraph in cell.paragraphs:
+                                            if cell_paragraph.runs:
                                                 # Manter formatação do primeiro run
-                                                first_run = paragraph.runs[0]
+                                                first_run = cell_paragraph.runs[0]
                                                 
                                                 # Limpar outros runs
-                                                for i in range(len(paragraph.runs) - 1, 0, -1):
-                                                    p = paragraph._element
-                                                    p.remove(paragraph.runs[i]._element)
+                                                while len(cell_paragraph.runs) > 1:
+                                                    p = cell_paragraph._element
+                                                    p.remove(cell_paragraph.runs[-1]._element)
                                                 
-                                                # Atualizar texto
+                                                # Atualizar texto mantendo formatação
                                                 first_run.text = new_cell_text
                                                 break
                                             else:
                                                 # Se não há runs, definir texto diretamente
-                                                paragraph.text = new_cell_text
+                                                cell_paragraph.text = new_cell_text
                                                 break
+                    else:
+                        logger.debug(f"Tabela {current_table_index} não tem edições")
                     
                     current_table_index += 1
             
@@ -858,11 +892,13 @@ class ContractGenerationService:
             
             doc.save(edited_filepath)
             logger.info(f"Contrato editado (formatação preservada) salvo: {edited_filepath}")
+            logger.info(f"Aplicadas {paragraph_index} edições de parágrafo e {len(table_edits)} edições de tabela")
             
             return edited_filepath
             
         except Exception as e:
             logger.error(f"Erro ao aplicar edições seletivas: {str(e)}")
+            logger.exception("Detalhes do erro:")
             # Fallback para método antigo em caso de erro
             return self.apply_text_edits(contract_path, new_content)
 
