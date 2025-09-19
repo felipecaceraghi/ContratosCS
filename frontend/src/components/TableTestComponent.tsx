@@ -43,7 +43,7 @@ Texto depois da tabela`;
         const tableData = JSON.parse(jsonString);
         console.log('🎯 TABELA ENCONTRADA E PARSEADA:', tableData.length, 'linhas');
         parts.push({ type: 'table', data: tableData });
-      } catch (e) {
+      } catch (_e) {
         parts.push({ type: 'text', content: content.substring(tableStart, tableEnd + '[/TABELA_JSON]'.length) });
       }
       
@@ -69,11 +69,11 @@ Texto depois da tabela`;
           <div key={index} className="my-6 overflow-x-auto">
             <table className="w-full border-collapse border-2 border-gray-600 bg-white">
               <tbody>
-                {tableData.map((row: any[], rowIndex: number) => {
+                {tableData.map((row: string[], rowIndex: number) => {
                   const isHeader = rowIndex === 0 || rowIndex === 1;
                   return (
                     <tr key={rowIndex} className={isHeader ? 'bg-blue-100' : 'hover:bg-gray-50'}>
-                      {row.map((cell: any, cellIndex: number) => (
+                      {row.map((cell: string, cellIndex: number) => (
                         <td
                           key={cellIndex}
                           className={`border border-gray-600 px-3 py-2 text-sm ${

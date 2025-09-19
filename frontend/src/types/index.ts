@@ -24,7 +24,7 @@ export interface Company {
 }
 
 export interface CompanyDetails extends Company {
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
 }
 
 export interface CompanySearchResult {

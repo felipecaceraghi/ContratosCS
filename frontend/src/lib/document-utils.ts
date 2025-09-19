@@ -69,6 +69,8 @@ export const downloadBothFormats = async (filename: string, companyName: string)
   }, 1000);
 };
 
-export default {
+const documentUtils = {
   downloadBothFormats
 };
+
+export default documentUtils;

@@ -28,12 +28,12 @@ export default function GroupCompanySearch({
   const [showGroupDropdown, setShowGroupDropdown] = useState(false);
   
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
-  const [selectedCompanies_, setSelectedCompanies_] = useState<Company[]>(selectedCompanies);
+  const [_selectedCompanies, _setSelectedCompanies] = useState<Company[]>(selectedCompanies);
   const searchRef = useRef<HTMLDivElement>(null);
 
   // Update internal state when prop changes
   useEffect(() => {
-    setSelectedCompanies_(selectedCompanies);
+    _setSelectedCompanies(selectedCompanies);
   }, [selectedCompanies]);
 
   // Debounce search for groups
@@ -85,12 +85,12 @@ export default function GroupCompanySearch({
       const result = await companiesAPI.getCompaniesByGroup(group.group_name);
       if (result.status === 'success') {
         // Adicionar o nome do grupo a cada empresa
-        const companiesWithGroup = result.companies.map((company: any) => ({
+        const companiesWithGroup = result.companies.map((company: Company) => ({
           ...company,
           group_name: group.group_name
         }));
         
-        setSelectedCompanies_(companiesWithGroup);
+        _setSelectedCompanies(companiesWithGroup);
         onCompaniesSelect?.(companiesWithGroup);
       }
     } catch (error) {
@@ -100,7 +100,7 @@ export default function GroupCompanySearch({
 
   const clearSelection = () => {
     setSelectedGroup(null);
-    setSelectedCompanies_([]);
+    _setSelectedCompanies([]);
     onCompaniesSelect?.([]);
   };
 
