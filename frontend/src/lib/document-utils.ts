@@ -34,39 +34,38 @@ export const downloadBothFormats = async (filename: string, companyName: string)
     console.error('Erro ao baixar DOCX:', docxError);
   }
   
-  // 2. Baixar PDF (após pequeno delay)
-  setTimeout(() => {
+  // 2. Baixar PDF usando o método direto (após pequeno delay)
+  setTimeout(async () => {
     try {
-      // Método confiável: usar um iframe temporário com token
-      const token = localStorage.getItem('access_token');
-      if (!token) {
-        console.error('Token de autenticação não encontrado');
-        return;
+      console.log('Iniciando download do PDF via método direto:', filename);
+      const pdfResponse = await contractsAPI.downloadAsPdf(filename);
+      
+      if (pdfResponse && pdfResponse.data) {
+        // Criar blob e URL para download
+        const pdfBlob = new Blob([pdfResponse.data], { type: 'application/pdf' });
+        const pdfUrl = window.URL.createObjectURL(pdfBlob);
+        
+        // Criar elemento para download
+        const pdfLink = document.createElement('a');
+        pdfLink.href = pdfUrl;
+        pdfLink.download = `contrato_${safeCompanyName}.pdf`;
+        
+        // Executar download
+        document.body.appendChild(pdfLink);
+        pdfLink.click();
+        
+        // Limpar recursos
+        setTimeout(() => {
+          pdfLink.remove();
+          window.URL.revokeObjectURL(pdfUrl);
+        }, 500);
+        
+        console.log('Download do PDF concluído');
+      } else {
+        throw new Error('Resposta PDF vazia ou inválida');
       }
-      
-      // Criar um formulário temporário para enviar o token
-      const form = document.createElement('form');
-      form.method = 'POST';
-      
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5004';
-      form.action = `${baseUrl}/api/contracts/download-as-pdf/${filename}?t=${new Date().getTime()}`;
-      form.target = '_blank';
-      
-      // Adicionar o token como um campo oculto
-      const tokenField = document.createElement('input');
-      tokenField.type = 'hidden';
-      tokenField.name = 'token';
-      tokenField.value = token;
-      form.appendChild(tokenField);
-      
-      // Adicionar o formulário ao documento, enviar e remover
-      document.body.appendChild(form);
-      form.submit();
-      document.body.removeChild(form);
-      
-      console.log('Requisição de PDF enviada com autenticação');
     } catch (pdfError) {
-      console.error('Erro ao abrir PDF:', pdfError);
+      console.error('Erro ao baixar PDF:', pdfError);
     }
   }, 1000);
 };
