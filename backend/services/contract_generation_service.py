@@ -758,7 +758,7 @@ class ContractGenerationService:
             Caminho do novo arquivo editado
         """
         try:
-            logger.info(f"Aplicando edições in-place preservando TUDO: {contract_path}")
+            logger.info(f"🔧 INICIANDO edição in-place: {contract_path}")
             
             import shutil
             import tempfile
@@ -773,23 +773,26 @@ class ContractGenerationService:
             
             # Copiar arquivo original (mantém TUDO: imagens, formatação, etc.)
             shutil.copy2(contract_path, edited_filepath)
+            logger.info(f"📋 Arquivo copiado para: {edited_filepath}")
             
             # Carregar o documento copiado
             doc = Document(edited_filepath)
             
-            # Extrair conteúdo atual do documento para comparar
-            current_content = self.extract_text_content(edited_filepath)
+            # DEBUG: Vamos ver o que temos no novo conteúdo
+            logger.info(f"📝 NOVO CONTEÚDO recebido ({len(new_content)} chars):")
+            logger.info(f"Primeiras 500 chars: {new_content[:500]}...")
             
-            logger.info("Comparando conteúdo atual vs novo para identificar mudanças...")
-            
-            # Dividir conteúdos em linhas para comparação
-            current_lines = current_content.split('\n')
             new_lines = new_content.split('\n')
+            logger.info(f"📄 Novo conteúdo tem {len(new_lines)} linhas")
             
-            # Mapear parágrafos e tabelas do documento
-            paragraphs = []
-            tables = []
-            element_order = []  # Para manter ordem de parágrafos e tabelas
+            # DEBUG: Vamos ver o conteúdo atual do documento
+            current_paragraphs = []
+            current_tables = []
+            
+            para_count = 0
+            table_count = 0
+            
+            logger.info("🔍 MAPEANDO documento atual:")
             
             for element in doc.element.body:
                 if element.tag.endswith('p'):  # Parágrafo
@@ -799,8 +802,9 @@ class ContractGenerationService:
                             para = p
                             break
                     if para:
-                        paragraphs.append(para)
-                        element_order.append(('p', len(paragraphs) - 1))
+                        current_paragraphs.append(para)
+                        logger.info(f"  📝 Parágrafo {para_count}: '{para.text[:100]}...'")
+                        para_count += 1
                         
                 elif element.tag.endswith('tbl'):  # Tabela
                     table = None
@@ -809,148 +813,157 @@ class ContractGenerationService:
                             table = t
                             break
                     if table:
-                        tables.append(table)
-                        element_order.append(('t', len(tables) - 1))
+                        current_tables.append(table)
+                        logger.info(f"  📊 Tabela {table_count}: {len(table.rows)} linhas x {len(table.columns)} colunas")
+                        table_count += 1
             
-            logger.info(f"Documento mapeado: {len(paragraphs)} parágrafos, {len(tables)} tabelas")
+            logger.info(f"📊 DOCUMENTO MAPEADO: {len(current_paragraphs)} parágrafos, {len(current_tables)} tabelas")
             
-            # Processar novo conteúdo e aplicar mudanças específicas
-            new_content_index = 0
+            # Agora vamos aplicar as mudanças linha por linha
+            new_line_index = 0
+            para_index = 0
+            table_index = 0
+            changes_made = 0
             
-            for element_type, element_index in element_order:
-                if element_type == 'p':  # Parágrafo
-                    if new_content_index < len(new_lines):
-                        new_line = new_lines[new_content_index]
+            # Processar cada elemento na ordem que aparece no documento
+            for element in doc.element.body:
+                if element.tag.endswith('p') and new_line_index < len(new_lines):  # Parágrafo
+                    new_line = new_lines[new_line_index].strip()
+                    
+                    # Pular linhas de tabela JSON
+                    if "[TABELA_JSON]" in new_line:
+                        new_line_index += 1
+                        continue
+                    
+                    # Encontrar o parágrafo correspondente
+                    para = None
+                    for p in doc.paragraphs:
+                        if p.element == element:
+                            para = p
+                            break
+                    
+                    if para:
+                        current_text = para.text.strip()
                         
-                        # Verificar se é uma linha de tabela JSON (pular)
-                        if "[TABELA_JSON]" in new_line:
-                            # Pular linha de tabela JSON
-                            new_content_index += 1
-                            continue
+                        logger.info(f"🔄 Comparando parágrafo {para_index}:")
+                        logger.info(f"   ATUAL: '{current_text}'")
+                        logger.info(f"   NOVO:  '{new_line}'")
                         
-                        # Aplicar novo texto ao parágrafo mantendo formatação
-                        if element_index < len(paragraphs):
-                            para = paragraphs[element_index]
-                            current_text = para.text
+                        # SEMPRE aplicar o novo texto (não comparar)
+                        if True:  # Forçar sempre aplicar
+                            logger.info(f"✏️ APLICANDO mudança no parágrafo {para_index}")
                             
-                            # Só modificar se o texto realmente mudou
-                            if current_text.strip() != new_line.strip():
-                                logger.info(f"Modificando parágrafo {element_index}: '{current_text}' -> '{new_line}'")
-                                
-                                # Preservar formatação do primeiro run
-                                if para.runs:
-                                    first_run = para.runs[0]
-                                    font_name = first_run.font.name
-                                    font_size = first_run.font.size
-                                    font_bold = first_run.font.bold
-                                    font_italic = first_run.font.italic
-                                    font_color = first_run.font.color
-                                    
-                                    # Limpar parágrafo e recriar com formatação original
-                                    para.clear()
-                                    new_run = para.add_run(new_line)
-                                    
-                                    # Aplicar formatação preservada
-                                    if font_name:
-                                        new_run.font.name = font_name
-                                    if font_size:
-                                        new_run.font.size = font_size
-                                    if font_bold:
-                                        new_run.font.bold = font_bold
-                                    if font_italic:
-                                        new_run.font.italic = font_italic
-                                    if font_color:
-                                        new_run.font.color.rgb = font_color.rgb
-                                else:
-                                    # Se não há runs, apenas substituir texto
-                                    para.text = new_line
+                            # Preservar formatação do primeiro run
+                            original_format = None
+                            if para.runs:
+                                first_run = para.runs[0]
+                                original_format = {
+                                    'font_name': first_run.font.name,
+                                    'font_size': first_run.font.size,
+                                    'font_bold': first_run.font.bold,
+                                    'font_italic': first_run.font.italic,
+                                }
+                            
+                            # Limpar parágrafo e aplicar novo texto
+                            para.clear()
+                            new_run = para.add_run(new_line)
+                            
+                            # Reaplicar formatação se existia
+                            if original_format:
+                                if original_format['font_name']:
+                                    new_run.font.name = original_format['font_name']
+                                if original_format['font_size']:
+                                    new_run.font.size = original_format['font_size']
+                                if original_format['font_bold']:
+                                    new_run.font.bold = original_format['font_bold']
+                                if original_format['font_italic']:
+                                    new_run.font.italic = original_format['font_italic']
+                            
+                            changes_made += 1
+                            logger.info(f"✅ Parágrafo {para_index} atualizado com sucesso")
                         
-                        new_content_index += 1
+                        para_index += 1
+                    
+                    new_line_index += 1
                 
-                elif element_type == 't':  # Tabela
-                    if new_content_index < len(new_lines):
-                        line = new_lines[new_content_index]
+                elif element.tag.endswith('tbl') and new_line_index < len(new_lines):  # Tabela
+                    line = new_lines[new_line_index]
+                    
+                    logger.info(f"🔄 Processando linha de tabela {table_index}: {line[:100]}...")
+                    
+                    if "[TABELA_JSON]" in line:
+                        json_match = re.search(r'\[TABELA_JSON\](.*?)\[/TABELA_JSON\]', line)
+                        if json_match and table_index < len(current_tables):
+                            try:
+                                table_data = json.loads(json_match.group(1))
+                                table = current_tables[table_index]
+                                
+                                logger.info(f"✏️ APLICANDO dados na tabela {table_index}: {len(table_data)} linhas")
+                                
+                                # Atualizar células mantendo formatação original
+                                for row_idx, row_data in enumerate(table_data):
+                                    if row_idx < len(table.rows):
+                                        row = table.rows[row_idx]
+                                        for col_idx, cell_data in enumerate(row_data):
+                                            if col_idx < len(row.cells):
+                                                cell = row.cells[col_idx]
+                                                
+                                                # Preservar formatação da primeira célula
+                                                original_format = None
+                                                if cell.paragraphs and cell.paragraphs[0].runs:
+                                                    first_run = cell.paragraphs[0].runs[0]
+                                                    original_format = {
+                                                        'font_name': first_run.font.name,
+                                                        'font_size': first_run.font.size,
+                                                        'font_bold': first_run.font.bold,
+                                                        'font_italic': first_run.font.italic,
+                                                    }
+                                                
+                                                # Aplicar novo conteúdo
+                                                cell.text = ""
+                                                para = cell.paragraphs[0]
+                                                new_run = para.add_run(str(cell_data))
+                                                
+                                                # Reaplicar formatação
+                                                if original_format:
+                                                    if original_format['font_name']:
+                                                        new_run.font.name = original_format['font_name']
+                                                    if original_format['font_size']:
+                                                        new_run.font.size = original_format['font_size']
+                                                    if original_format['font_bold']:
+                                                        new_run.font.bold = original_format['font_bold']
+                                                    if original_format['font_italic']:
+                                                        new_run.font.italic = original_format['font_italic']
+                                
+                                changes_made += 1
+                                logger.info(f"✅ Tabela {table_index} atualizada com sucesso")
+                                
+                            except json.JSONDecodeError as e:
+                                logger.error(f"❌ Erro ao processar JSON da tabela: {e}")
                         
-                        # Verificar se há dados JSON para esta tabela
-                        if "[TABELA_JSON]" in line:
-                            json_match = re.search(r'\[TABELA_JSON\](.*?)\[/TABELA_JSON\]', line)
-                            if json_match and element_index < len(tables):
-                                try:
-                                    table_data = json.loads(json_match.group(1))
-                                    table = tables[element_index]
-                                    
-                                    logger.info(f"Atualizando tabela {element_index} com {len(table_data)} linhas")
-                                    
-                                    # Ajustar número de linhas se necessário
-                                    current_rows = len(table.rows)
-                                    needed_rows = len(table_data)
-                                    
-                                    if needed_rows > current_rows:
-                                        # Adicionar linhas
-                                        for _ in range(needed_rows - current_rows):
-                                            table.add_row()
-                                    elif needed_rows < current_rows:
-                                        # Remover linhas extras (mais complexo, vamos manter por segurança)
-                                        pass
-                                    
-                                    # Atualizar células mantendo formatação original
-                                    for row_idx, row_data in enumerate(table_data):
-                                        if row_idx < len(table.rows):
-                                            row = table.rows[row_idx]
-                                            for col_idx, cell_data in enumerate(row_data):
-                                                if col_idx < len(row.cells):
-                                                    cell = row.cells[col_idx]
-                                                    
-                                                    # Preservar formatação da célula
-                                                    if cell.paragraphs and cell.paragraphs[0].runs:
-                                                        first_run = cell.paragraphs[0].runs[0]
-                                                        font_name = first_run.font.name
-                                                        font_size = first_run.font.size
-                                                        font_bold = first_run.font.bold
-                                                        font_italic = first_run.font.italic
-                                                        
-                                                        # Limpar e recriar com formatação
-                                                        cell.text = ""
-                                                        para = cell.paragraphs[0]
-                                                        new_run = para.add_run(str(cell_data))
-                                                        
-                                                        if font_name:
-                                                            new_run.font.name = font_name
-                                                        if font_size:
-                                                            new_run.font.size = font_size
-                                                        if font_bold:
-                                                            new_run.font.bold = font_bold
-                                                        if font_italic:
-                                                            new_run.font.italic = font_italic
-                                                    else:
-                                                        # Fallback simples
-                                                        cell.text = str(cell_data)
-                                    
-                                except json.JSONDecodeError as e:
-                                    logger.error(f"Erro ao processar JSON da tabela: {e}")
-                            
-                            new_content_index += 1
-                        else:
-                            # Não é uma linha de tabela JSON, continuar
-                            continue
+                        table_index += 1
+                    
+                    new_line_index += 1
             
             # Salvar documento modificado
             doc.save(edited_filepath)
-            logger.info(f"Documento editado in-place salvo: {edited_filepath}")
+            logger.info(f"💾 Documento salvo com {changes_made} modificações aplicadas")
+            logger.info(f"📁 Arquivo final: {edited_filepath}")
             
             return edited_filepath
             
         except Exception as e:
-            logger.error(f"Erro ao aplicar edições in-place: {str(e)}")
-            logger.exception("Detalhes do erro:")
+            logger.error(f"❌ ERRO ao aplicar edições in-place: {str(e)}")
+            logger.exception("Detalhes completos do erro:")
             
-            # Fallback: retornar arquivo original se tudo der errado
+            # Fallback: retornar arquivo original
             import shutil
             base_filename = os.path.basename(contract_path)
             name_without_ext = os.path.splitext(base_filename)[0]
             fallback_filename = f"{name_without_ext}_editado.docx"
             fallback_filepath = os.path.join(tempfile.gettempdir(), fallback_filename)
             shutil.copy2(contract_path, fallback_filepath)
+            logger.info(f"📋 Fallback: retornando cópia do original: {fallback_filepath}")
             return fallback_filepath
 
     def validate_template(self):
