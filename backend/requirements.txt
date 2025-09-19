@@ -4,7 +4,7 @@ python-docx
 # Para conversão DOCX -> PDF (escolha uma das opções abaixo)
 docx2pdf==0.1.8  # Método principal - requer MS Word ou LibreOffice instalado
 # python-docx-replace==0.4.6  # Método alternativo - apenas para extração de texto
-reportlab==3.6.12  # Método alternativo - para geração de PDF
+# reportlab não é mais necessário, usaremos somente LibreOffice
 bcrypt==4.3.0
 blinker==1.9.0
 click==8.2.1

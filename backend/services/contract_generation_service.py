@@ -405,54 +405,63 @@ class ContractGenerationService:
             
             # Usar LibreOffice em modo headless para converter para PDF
             import subprocess
+            import shutil
             
             # Comando padrão para Linux (onde o Docker está rodando)
             soffice_cmd = "soffice"
             
-            logger.info(f"Usando LibreOffice para conversão: {soffice_cmd}")
-            
-            # Comando para converter DOCX para PDF
-            cmd = [
-                soffice_cmd,
-                '--headless',
-                '--convert-to', 'pdf',
-                '--outdir', os.path.dirname(pdf_path),
-                docx_path
-            ]
-            
-            # Executar o comando com timeout para evitar bloqueios
-            logger.info(f"Executando comando: {' '.join(cmd)}")
-            process = subprocess.Popen(
-                cmd, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE
-            )
-            
-            stdout, stderr = process.communicate(timeout=30)
-            
-            # Verificar o resultado da conversão
-            if process.returncode != 0:
-                logger.error(f"Erro ao converter com LibreOffice: {stderr.decode()}")
-                raise RuntimeError(f"Falha na conversão para PDF: {stderr.decode()}")
-            
-            logger.info(f"Saída da conversão: {stdout.decode()}")
-            
-            # Verificar se o PDF foi gerado corretamente
-            if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
-                logger.info(f"PDF gerado com sucesso: {pdf_path}, tamanho: {os.path.getsize(pdf_path)} bytes")
-                return pdf_path
+            # Verificar se o LibreOffice está disponível
+            if shutil.which(soffice_cmd):
+                logger.info(f"LibreOffice encontrado, usando para conversão")
+                
+                # Comando para converter DOCX para PDF
+                cmd = [
+                    soffice_cmd,
+                    '--headless',
+                    '--convert-to', 'pdf',
+                    '--outdir', os.path.dirname(pdf_path),
+                    docx_path
+                ]
+                
+                # Executar o comando com timeout para evitar bloqueios
+                logger.info(f"Executando comando: {' '.join(cmd)}")
+                process = subprocess.Popen(
+                    cmd, 
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE
+                )
+                
+                stdout, stderr = process.communicate(timeout=30)
+                
+                # Verificar o resultado da conversão
+                if process.returncode != 0:
+                    logger.error(f"Erro ao converter com LibreOffice: {stderr.decode()}")
+                    raise RuntimeError(f"Falha na conversão para PDF: {stderr.decode()}")
+                
+                logger.info(f"Saída da conversão: {stdout.decode()}")
+                
+                # Verificar se o PDF foi gerado corretamente
+                if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
+                    logger.info(f"PDF gerado com sucesso: {pdf_path}, tamanho: {os.path.getsize(pdf_path)} bytes")
+                    return pdf_path
+                else:
+                    logger.error(f"PDF não foi gerado ou está vazio: {pdf_path}")
+                    raise RuntimeError(f"PDF não foi gerado corretamente: {pdf_path}")
             else:
-                logger.error(f"PDF não foi gerado ou está vazio: {pdf_path}")
-                raise RuntimeError(f"PDF não foi gerado corretamente: {pdf_path}")
+                # Se LibreOffice não estiver disponível, retornar o arquivo DOCX como alternativa
+                logger.warning("LibreOffice não está disponível, retornando arquivo DOCX original")
+                return docx_path
             
-        except subprocess.TimeoutExpired:
-            process.kill()
+        except subprocess.TimeoutExpired as timeout_error:
+            if 'process' in locals():
+                process.kill()
             logger.error("Timeout ao executar LibreOffice")
-            raise RuntimeError("Timeout durante a conversão para PDF")
+            return docx_path
             
         except Exception as e:
             logger.error(f"Erro ao converter para PDF: {str(e)}")
-            raise RuntimeError(f"Erro na conversão para PDF: {str(e)}")
+            # Em caso de erro, retorna o arquivo DOCX original
+            return docx_path
     
     def get_template_fields(self) -> list:
         """

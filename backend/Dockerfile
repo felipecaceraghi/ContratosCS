@@ -7,7 +7,7 @@ WORKDIR /app
 # Instala dependências do sistema
 RUN apt-get update && apt-get install -y \
     gcc \
-    libreoffice-writer \
+    libreoffice \
     && rm -rf /var/lib/apt/lists/*
 
 # Copia requirements.txt primeiro para cache de layers
