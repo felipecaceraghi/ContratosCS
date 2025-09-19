@@ -37,7 +37,7 @@ export const downloadBothFormats = async (filename: string, companyName: string)
   // 2. Baixar PDF usando o método direto (após pequeno delay)
   setTimeout(async () => {
     try {
-      console.log('Iniciando download do PDF via método direto:', filename);
+      console.log('Iniciando download do PDF para:', filename);
       const pdfResponse = await contractsAPI.downloadAsPdf(filename);
       
       if (pdfResponse && pdfResponse.data) {
@@ -61,11 +61,10 @@ export const downloadBothFormats = async (filename: string, companyName: string)
         }, 500);
         
         console.log('Download do PDF concluído');
-      } else {
-        throw new Error('Resposta PDF vazia ou inválida');
       }
     } catch (pdfError) {
       console.error('Erro ao baixar PDF:', pdfError);
+      alert('Ocorreu um erro ao gerar o PDF. O arquivo DOCX foi baixado com sucesso.');
     }
   }, 1000);
 };

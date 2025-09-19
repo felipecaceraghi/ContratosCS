@@ -3,6 +3,7 @@ Serviço para geração de contratos a partir de template Word
 """
 import os
 import tempfile
+import datetime
 from docx import Document
 from typing import Dict, Any, Optional, List
 import logging
@@ -382,11 +383,11 @@ class ContractGenerationService:
 
     def convert_to_pdf(self, docx_path: str) -> str:
         """
-        Converte um arquivo .docx existente para .pdf usando método alternativo com python-docx e ReportLab.
-
+        Converte um arquivo .docx existente para .pdf usando LibreOffice.
+        
         Args:
             docx_path: O caminho absoluto para o arquivo .docx.
-
+            
         Returns:
             O caminho para o arquivo .pdf gerado.
         """
@@ -402,73 +403,56 @@ class ContractGenerationService:
             pdf_path = docx_path.replace('.docx', '.pdf')
             logger.info(f"Convertendo {docx_path} para PDF em {pdf_path}...")
             
-            # Método 1: Tentar usar docx2pdf se disponível
-            try:
-                from docx2pdf import convert
-                logger.info("Usando docx2pdf para conversão...")
-                convert(docx_path, pdf_path)
-                logger.info("Conversão via docx2pdf concluída")
-            except ImportError:
-                logger.warning("Biblioteca docx2pdf não encontrada, tentando método alternativo...")
-                
-                # Método 2: Usar subprocess para chamar LibreOffice em modo headless (se disponível)
-                try:
-                    import subprocess
-                    import platform
-                    
-                    # Determinar comando baseado no sistema operacional
-                    if platform.system() == "Windows":
-                        soffice_cmd = r"C:\Program Files\LibreOffice\program\soffice.exe"
-                    else:  # Linux/Mac
-                        soffice_cmd = "soffice"
-                    
-                    logger.info(f"Tentando conversão com LibreOffice: {soffice_cmd}")
-                    
-                    # Converter para PDF usando LibreOffice em modo headless
-                    cmd = [
-                        soffice_cmd,
-                        '--headless',
-                        '--convert-to', 'pdf',
-                        '--outdir', os.path.dirname(pdf_path),
-                        docx_path
-                    ]
-                    
-                    process = subprocess.Popen(
-                        cmd, 
-                        stdout=subprocess.PIPE, 
-                        stderr=subprocess.PIPE
-                    )
-                    
-                    stdout, stderr = process.communicate()
-                    
-                    if process.returncode != 0:
-                        logger.error(f"Erro ao converter com LibreOffice: {stderr.decode()}")
-                        raise RuntimeError(f"Falha na conversão com LibreOffice: {stderr.decode()}")
-                    
-                    logger.info(f"Saída da conversão: {stdout.decode()}")
-                except Exception as libreoffice_error:
-                    logger.error(f"Falha ao usar LibreOffice: {str(libreoffice_error)}")
-                    
-                    # Método 3: Criar uma cópia do arquivo DOCX para simular PDF
-                    logger.warning("Métodos de conversão falharam. Gerando uma cópia do arquivo DOCX como PDF de fallback.")
-                    import shutil
-                    # Criar uma cópia do arquivo .docx com extensão .pdf
-                    shutil.copy2(docx_path, pdf_path)
-                    logger.info(f"Criada cópia de fallback: {pdf_path}")
+            # Usar LibreOffice em modo headless para converter para PDF
+            import subprocess
             
-            # Verificar se o PDF foi gerado
-            if os.path.exists(pdf_path):
+            # Comando padrão para Linux (onde o Docker está rodando)
+            soffice_cmd = "soffice"
+            
+            logger.info(f"Usando LibreOffice para conversão: {soffice_cmd}")
+            
+            # Comando para converter DOCX para PDF
+            cmd = [
+                soffice_cmd,
+                '--headless',
+                '--convert-to', 'pdf',
+                '--outdir', os.path.dirname(pdf_path),
+                docx_path
+            ]
+            
+            # Executar o comando com timeout para evitar bloqueios
+            logger.info(f"Executando comando: {' '.join(cmd)}")
+            process = subprocess.Popen(
+                cmd, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE
+            )
+            
+            stdout, stderr = process.communicate(timeout=30)
+            
+            # Verificar o resultado da conversão
+            if process.returncode != 0:
+                logger.error(f"Erro ao converter com LibreOffice: {stderr.decode()}")
+                raise RuntimeError(f"Falha na conversão para PDF: {stderr.decode()}")
+            
+            logger.info(f"Saída da conversão: {stdout.decode()}")
+            
+            # Verificar se o PDF foi gerado corretamente
+            if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
                 logger.info(f"PDF gerado com sucesso: {pdf_path}, tamanho: {os.path.getsize(pdf_path)} bytes")
                 return pdf_path
             else:
-                logger.error(f"PDF não foi gerado: {pdf_path}")
-                raise RuntimeError(f"PDF não foi gerado: {pdf_path}")
-                
+                logger.error(f"PDF não foi gerado ou está vazio: {pdf_path}")
+                raise RuntimeError(f"PDF não foi gerado corretamente: {pdf_path}")
+            
+        except subprocess.TimeoutExpired:
+            process.kill()
+            logger.error("Timeout ao executar LibreOffice")
+            raise RuntimeError("Timeout durante a conversão para PDF")
+            
         except Exception as e:
-            logger.error(f"Falha ao converter para PDF: {str(e)}")
-            # Retornar o arquivo original como fallback
-            logger.warning(f"Retornando arquivo original como fallback")
-            return docx_path
+            logger.error(f"Erro ao converter para PDF: {str(e)}")
+            raise RuntimeError(f"Erro na conversão para PDF: {str(e)}")
     
     def get_template_fields(self) -> list:
         """
