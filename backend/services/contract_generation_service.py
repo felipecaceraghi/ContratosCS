@@ -833,9 +833,13 @@ class ContractGenerationService:
                     body.append(sect_pr)
                 
                 # Aplicar novo conteúdo usando elementos formatados como template
-                element_index = 0
-                i = 0
+                para_templates = [elem[1] for elem in formatted_elements if elem[0] == 'paragraph']
+                table_templates = [elem[1] for elem in formatted_elements if elem[0] == 'table']
                 
+                para_template_index = 0
+                table_template_index = 0
+                
+                i = 0
                 while i < len(new_lines):
                     line = new_lines[i]
                     
@@ -846,81 +850,120 @@ class ContractGenerationService:
                             try:
                                 table_data = json.loads(json_match.group(1))
                                 
-                                # Encontrar template de tabela
-                                table_template = None
-                                for j in range(element_index, len(formatted_elements)):
-                                    if formatted_elements[j][0] == 'table':
-                                        table_template = formatted_elements[j][1]
-                                        element_index = j + 1
-                                        break
-                                
-                                if table_template is not None and table_data:
+                                if table_data and table_template_index < len(table_templates):
+                                    # Usar template de tabela disponível
+                                    table_template = table_templates[table_template_index]
+                                    table_template_index += 1
+                                    
                                     # Clonar template da tabela
                                     new_table = etree.fromstring(etree.tostring(table_template))
                                     
                                     # Limpar dados antigos, mas manter estrutura
                                     rows = new_table.findall('.//w:tr', ns)
                                     
-                                    # Ajustar número de linhas
-                                    while len(rows) < len(table_data):
-                                        # Clonar última linha
-                                        if rows:
-                                            new_row = etree.fromstring(etree.tostring(rows[-1]))
-                                            new_table.find('.//w:tbl', ns).append(new_row)
-                                            rows.append(new_row)
+                                    # Ajustar número de linhas se necessário
+                                    current_rows = len(rows)
+                                    needed_rows = len(table_data)
                                     
-                                    # Aplicar novos dados
+                                    if needed_rows > current_rows:
+                                        # Adicionar linhas clonando a última
+                                        if rows:
+                                            last_row = rows[-1]
+                                            for _ in range(needed_rows - current_rows):
+                                                new_row = etree.fromstring(etree.tostring(last_row))
+                                                # Encontrar o elemento tbl e adicionar a nova linha
+                                                tbl = new_table if new_table.tag.endswith('}tbl') else new_table.find('.//w:tbl', ns)
+                                                if tbl is not None:
+                                                    tbl.append(new_row)
+                                                    rows.append(new_row)
+                                    
+                                    # Aplicar novos dados mantendo formatação
                                     for row_idx, row_data in enumerate(table_data):
                                         if row_idx < len(rows):
                                             cells = rows[row_idx].findall('.//w:tc', ns)
                                             for col_idx, cell_data in enumerate(row_data):
                                                 if col_idx < len(cells):
-                                                    # Encontrar texto na célula
+                                                    # Encontrar todos os elementos de texto na célula
                                                     text_elements = cells[col_idx].findall('.//w:t', ns)
                                                     if text_elements:
-                                                        # Limpar texto antigo
-                                                        for t_elem in text_elements:
+                                                        # Limpar texto de todos os elementos
+                                                        for t_elem in text_elements[1:]:
                                                             t_elem.text = ""
                                                         # Colocar novo texto no primeiro elemento
                                                         text_elements[0].text = str(cell_data)
+                                                    else:
+                                                        # Se não há elementos de texto, criar um básico
+                                                        tc = cells[col_idx]
+                                                        # Encontrar ou criar um parágrafo
+                                                        p = tc.find('.//w:p', ns)
+                                                        if p is not None:
+                                                            # Limpar parágrafo
+                                                            for child in list(p):
+                                                                p.remove(child)
+                                                            # Criar run com texto
+                                                            r_elem = etree.SubElement(p, '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}r')
+                                                            t_elem = etree.SubElement(r_elem, '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t')
+                                                            t_elem.text = str(cell_data)
                                     
-                                    body.append(new_table)
-                                    logger.info(f"📊 Tabela XML aplicada: {len(table_data)} linhas")
+                                    body.insert(-1 if sect_pr is not None else len(body), new_table)
+                                    logger.info(f"📊 Tabela XML aplicada na ordem: {len(table_data)} linhas")
                                 
                             except Exception as e:
                                 logger.error(f"Erro ao processar tabela: {e}")
+                                # Em caso de erro, criar parágrafo simples
+                                if para_template_index < len(para_templates):
+                                    para_template = para_templates[para_template_index]
+                                    para_template_index += 1
+                                    new_para = etree.fromstring(etree.tostring(para_template))
+                                    # Limpar e colocar linha como texto
+                                    text_elements = new_para.findall('.//w:t', ns)
+                                    if text_elements:
+                                        for t_elem in text_elements:
+                                            t_elem.text = ""
+                                        text_elements[0].text = line
+                                    body.insert(-1 if sect_pr is not None else len(body), new_para)
                         
                         i += 1
                     
                     else:
-                        # Processar parágrafo
-                        if line.strip() or element_index < len(formatted_elements):
-                            # Encontrar template de parágrafo
-                            para_template = None
-                            for j in range(element_index, len(formatted_elements)):
-                                if formatted_elements[j][0] == 'paragraph':
-                                    para_template = formatted_elements[j][1]
-                                    element_index = j + 1
-                                    break
+                        # Processar parágrafo normal
+                        if para_template_index < len(para_templates):
+                            para_template = para_templates[para_template_index]
+                            para_template_index += 1
                             
-                            if para_template is not None:
-                                # Clonar template do parágrafo
-                                new_para = etree.fromstring(etree.tostring(para_template))
-                                
-                                # Limpar texto antigo, mas manter formatação
-                                text_elements = new_para.findall('.//w:t', ns)
-                                if text_elements:
-                                    # Limpar todos os textos
-                                    for t_elem in text_elements:
-                                        t_elem.text = ""
-                                    # Colocar novo texto no primeiro elemento
-                                    text_elements[0].text = line
-                                
-                                body.insert(-1 if sect_pr is not None else len(body), new_para)
-                                logger.debug(f"📝 Parágrafo XML aplicado: '{line[:30]}...'")
+                            # Clonar template do parágrafo
+                            new_para = etree.fromstring(etree.tostring(para_template))
+                            
+                            # Limpar texto antigo, mas manter formatação
+                            text_elements = new_para.findall('.//w:t', ns)
+                            if text_elements:
+                                # Limpar todos os textos exceto o primeiro
+                                for t_elem in text_elements[1:]:
+                                    t_elem.text = ""
+                                # Colocar novo texto no primeiro elemento
+                                text_elements[0].text = line if line.strip() else ""
                             else:
-                                # Fallback: criar parágrafo simples
+                                # Se não há elementos de texto, criar estrutura básica
+                                if line.strip():
+                                    # Encontrar ou criar run
+                                    r = new_para.find('.//w:r', ns)
+                                    if r is None:
+                                        r = etree.SubElement(new_para, '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}r')
+                                    # Criar elemento de texto
+                                    t = etree.SubElement(r, '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t')
+                                    t.text = line
+                            
+                            body.insert(-1 if sect_pr is not None else len(body), new_para)
+                            logger.debug(f"📝 Parágrafo XML na ordem: '{line[:30]}...'")
+                        else:
+                            # Sem mais templates, criar parágrafo básico
+                            if line.strip():
                                 para_xml = f'<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:r><w:t>{line}</w:t></w:r></w:p>'
+                                new_para = etree.fromstring(para_xml)
+                                body.insert(-1 if sect_pr is not None else len(body), new_para)
+                            else:
+                                # Parágrafo vazio
+                                para_xml = '<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"></w:p>'
                                 new_para = etree.fromstring(para_xml)
                                 body.insert(-1 if sect_pr is not None else len(body), new_para)
                         
