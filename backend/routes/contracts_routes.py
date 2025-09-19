@@ -648,6 +648,71 @@ def save_contract_edits(filename):
             'error': 'Erro interno do servidor'
         }), 500
 
+@contracts_bp.route('/apply-edits/<filename>', methods=['POST'])
+@jwt_required()
+def apply_contract_edits(filename):
+    """
+    Aplica edições nos campos específicos do contrato (razão social, CNPJ, endereço)
+    """
+    try:
+        user_id = get_jwt_identity()
+        data = request.get_json()
+        
+        if not data or 'razao_social' not in data or 'cnpj' not in data or 'endereco' not in data:
+            return jsonify({
+                'success': False,
+                'error': 'Todos os campos (razao_social, cnpj, endereco) são obrigatórios'
+            }), 400
+        
+        logger.info(f"Usuário {user_id} aplicando edições no contrato: {filename}")
+        logger.info(f"Dados recebidos: {data}")
+        
+        # Validar nome do arquivo
+        if not filename.endswith('.docx') or '..' in filename or '/' in filename:
+            return jsonify({
+                'success': False,
+                'error': 'Nome de arquivo inválido'
+            }), 400
+        
+        # Caminho do arquivo
+        file_path = os.path.join(tempfile.gettempdir(), filename)
+        
+        if not os.path.exists(file_path):
+            return jsonify({
+                'success': False,
+                'error': 'Arquivo não encontrado'
+            }), 404
+        
+        # Extrair campos do request
+        updated_data = {
+            'razao_social': data['razao_social'],
+            'cnpj': data['cnpj'],
+            'endereco': data['endereco']
+        }
+        
+        logger.info(f"Atualizando contrato com dados: {updated_data}")
+        
+        # Gerar novo contrato com dados atualizados
+        contract_service = ContractGenerationService()
+        new_contract_path = contract_service.generate_contract(updated_data)
+        
+        # Nome do arquivo editado
+        edited_filename = os.path.basename(new_contract_path)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Contrato atualizado com sucesso',
+            'filename': edited_filename,
+            'updated_data': updated_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Erro ao aplicar edições ao contrato: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'Erro interno do servidor: {str(e)}'
+        }), 500
+
 @contracts_bp.route('/preview', methods=['POST'])
 @jwt_required()
 def preview_contract_data():
