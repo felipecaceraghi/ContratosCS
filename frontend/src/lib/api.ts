@@ -112,6 +112,14 @@ export const companiesAPI = {
   },
 };
 
+// Tipos para contratos
+export interface SaveEditsResponse {
+  success: boolean;
+  message: string;
+  edited_file?: string;
+  download_url?: string;
+}
+
 // Funções de Contratos
 export const contractsAPI = {
   generate: async (cnpj: string) => {
@@ -166,7 +174,7 @@ export const contractsAPI = {
     return response.data;
   },
 
-  saveEdits: async (filename: string, content: string) => {
+  saveEdits: async (filename: string, content: string): Promise<SaveEditsResponse> => {
     const response = await api.post(`/api/contracts/save-edits/${filename}`, { content });
     return response.data;
   },

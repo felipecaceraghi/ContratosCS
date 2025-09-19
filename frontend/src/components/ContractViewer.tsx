@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { contractsAPI } from '@/lib/api';
+import { contractsAPI, SaveEditsResponse } from '@/lib/api';
 import { downloadBothFormats } from '@/lib/document-utils';
 
 interface ContractViewerProps {
@@ -543,10 +543,13 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
       // antes de chamar a API usando setTimeout
       setTimeout(async () => {
         try {
-          const response = await contractsAPI.saveEdits(filename, editedContent || finalContent || '');
+          // Usar finalContent diretamente, não editedContent
+          const response: SaveEditsResponse = await contractsAPI.saveEdits(filename, finalContent || '');
           
           if (response.success) {
-            await handleDownload();
+            // CORREÇÃO: Usar o arquivo editado retornado pelo backend
+            const editedFilename = response.edited_file || filename;
+            await handleDownloadEdited(editedFilename);
             
             if (onSave) {
               onSave();
@@ -587,6 +590,31 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
     } catch (error) {
       console.error('Erro geral no processo de download:', error);
       setToastMessage('Erro ao processar downloads.');
+      setTimeout(() => {
+        setShowToast(false);
+      }, 3000);
+    }
+  };
+
+  const handleDownloadEdited = async (editedFilename: string) => {
+    try {
+      // Mostrar toast informando o usuário
+      setToastMessage('Iniciando downloads do arquivo editado (DOCX e PDF)...');
+      setShowToast(true);
+      
+      // Usar a função utilitária para baixar ambos os formatos do arquivo editado
+      await downloadBothFormats(editedFilename, companyName);
+      
+      // Atualizar mensagem
+      setToastMessage('Arquivo editado - DOCX e PDF disponibilizados com sucesso!');
+      
+      // Esconder toast após alguns segundos
+      setTimeout(() => {
+        setShowToast(false);
+      }, 3000);
+    } catch (error) {
+      console.error('Erro geral no processo de download do arquivo editado:', error);
+      setToastMessage('Erro ao processar downloads do arquivo editado.');
       setTimeout(() => {
         setShowToast(false);
       }, 3000);
