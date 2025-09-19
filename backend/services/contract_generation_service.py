@@ -850,9 +850,16 @@ class ContractGenerationService:
                         logger.info(f"   NOVO:  '{new_line}'")
                         
                         # SEMPRE aplicar o novo texto (não comparar)
-                        if True:  # Forçar sempre aplicar
-                            logger.info(f"✏️ APLICANDO mudança no parágrafo {para_index}")
-                            
+                        logger.info(f"✏️ APLICANDO mudança no parágrafo {para_index}")
+                        
+                        # Verificar se o novo conteúdo está vazio (parágrafo deletado)
+                        if not new_line or new_line.strip() == "":
+                            logger.info(f"🗑️ REMOVENDO parágrafo {para_index} (conteúdo vazio)")
+                            # Limpar completamente o parágrafo
+                            para.clear()
+                            # Deixar parágrafo vazio (será renderizado como espaço)
+                            para.add_run("")
+                        else:
                             # Preservar formatação do primeiro run
                             original_format = None
                             if para.runs:
@@ -878,9 +885,9 @@ class ContractGenerationService:
                                     new_run.font.bold = original_format['font_bold']
                                 if original_format['font_italic']:
                                     new_run.font.italic = original_format['font_italic']
-                            
-                            changes_made += 1
-                            logger.info(f"✅ Parágrafo {para_index} atualizado com sucesso")
+                        
+                        changes_made += 1
+                        logger.info(f"✅ Parágrafo {para_index} atualizado com sucesso")
                         
                         para_index += 1
                     
