@@ -323,11 +323,12 @@ def download_contract(filename):
         logger.error(f"Erro ao fazer download do DOCX: {str(e)}")
         return jsonify({'success': False, 'error': 'Erro interno do servidor'}), 500
 
-@contracts_bp.route('/download-as-pdf/<filename>', methods=['GET'])
+@contracts_bp.route('/download-as-pdf/<filename>', methods=['GET', 'POST'])
 @jwt_required()
 def download_as_pdf(filename):
     """
     Converte um contrato .docx existente para .pdf e faz o download.
+    Aceita tanto GET quanto POST para compatibilidade com formulários de download.
     """
     try:
         user_id = get_jwt_identity()

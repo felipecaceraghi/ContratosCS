@@ -37,12 +37,34 @@ export const downloadBothFormats = async (filename: string, companyName: string)
   // 2. Baixar PDF (após pequeno delay)
   setTimeout(() => {
     try {
-      // Método confiável: abrir em nova aba
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5004';
-      const pdfUrl = `${baseUrl}/api/contracts/download-as-pdf/${filename}?t=${new Date().getTime()}`;
+      // Método confiável: usar um iframe temporário com token
+      const token = localStorage.getItem('access_token');
+      if (!token) {
+        console.error('Token de autenticação não encontrado');
+        return;
+      }
       
-      console.log('Abrindo PDF em nova aba:', pdfUrl);
-      window.open(pdfUrl, '_blank');
+      // Criar um formulário temporário para enviar o token
+      const form = document.createElement('form');
+      form.method = 'POST';
+      
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5004';
+      form.action = `${baseUrl}/api/contracts/download-as-pdf/${filename}?t=${new Date().getTime()}`;
+      form.target = '_blank';
+      
+      // Adicionar o token como um campo oculto
+      const tokenField = document.createElement('input');
+      tokenField.type = 'hidden';
+      tokenField.name = 'token';
+      tokenField.value = token;
+      form.appendChild(tokenField);
+      
+      // Adicionar o formulário ao documento, enviar e remover
+      document.body.appendChild(form);
+      form.submit();
+      document.body.removeChild(form);
+      
+      console.log('Requisição de PDF enviada com autenticação');
     } catch (pdfError) {
       console.error('Erro ao abrir PDF:', pdfError);
     }
