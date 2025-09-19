@@ -747,8 +747,8 @@ class ContractGenerationService:
 
     def apply_selective_edits(self, contract_path: str, new_content: str) -> str:
         """
-        Aplica edições diretamente no documento original preservando TODA formatação,
-        imagens, tabelas complexas, etc. Só modifica o texto que realmente mudou.
+        Aplica edições preservando TODA formatação original.
+        Estratégia híbrida: extrai formatação do original + aplica no novo conteúdo.
         
         Args:
             contract_path: Caminho do contrato original
@@ -758,209 +758,274 @@ class ContractGenerationService:
             Caminho do novo arquivo editado
         """
         try:
-            logger.info(f"🔧 INICIANDO edição in-place: {contract_path}")
+            logger.info(f"🔧 INICIANDO aplicação híbrida: {contract_path}")
             
             import shutil
             import tempfile
             import json
             import re
+            from docx.shared import Pt, RGBColor
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
             
-            # Criar cópia do arquivo original
+            # 1. EXTRAIR FORMATAÇÃO DO DOCUMENTO ORIGINAL
+            logger.info("📋 Extraindo formatação do documento original...")
+            original_doc = Document(contract_path)
+            
+            # Coletar TODA a formatação original
+            original_formatting = {
+                'paragraphs': [],
+                'tables': [],
+                'styles': {},
+                'page_settings': {}
+            }
+            
+            # Extrair configurações de página
+            section = original_doc.sections[0]
+            original_formatting['page_settings'] = {
+                'page_width': section.page_width,
+                'page_height': section.page_height,
+                'left_margin': section.left_margin,
+                'right_margin': section.right_margin,
+                'top_margin': section.top_margin,
+                'bottom_margin': section.bottom_margin,
+                'header_distance': section.header_distance,
+                'footer_distance': section.footer_distance,
+            }
+            
+            # Extrair formatação de parágrafos
+            for para in original_doc.paragraphs:
+                para_format = {
+                    'style_name': para.style.name if para.style else 'Normal',
+                    'alignment': para.alignment,
+                    'runs_format': []
+                }
+                
+                # Extrair formatação de cada run
+                for run in para.runs:
+                    run_format = {
+                        'font_name': run.font.name,
+                        'font_size': run.font.size,
+                        'bold': run.font.bold,
+                        'italic': run.font.italic,
+                        'underline': run.font.underline,
+                        'color': run.font.color.rgb if run.font.color and run.font.color.rgb else None,
+                    }
+                    para_format['runs_format'].append(run_format)
+                
+                original_formatting['paragraphs'].append(para_format)
+            
+            # Extrair formatação de tabelas
+            for table in original_doc.tables:
+                table_format = {
+                    'style_name': table.style.name if table.style else 'Table Grid',
+                    'rows': []
+                }
+                
+                for row in table.rows:
+                    row_format = {'cells': []}
+                    for cell in row.cells:
+                        cell_format = {
+                            'paragraphs': []
+                        }
+                        
+                        for para in cell.paragraphs:
+                            para_format = {
+                                'alignment': para.alignment,
+                                'runs_format': []
+                            }
+                            
+                            for run in para.runs:
+                                run_format = {
+                                    'font_name': run.font.name,
+                                    'font_size': run.font.size,
+                                    'bold': run.font.bold,
+                                    'italic': run.font.italic,
+                                    'color': run.font.color.rgb if run.font.color and run.font.color.rgb else None,
+                                }
+                                para_format['runs_format'].append(run_format)
+                            
+                            cell_format['paragraphs'].append(para_format)
+                        
+                        row_format['cells'].append(cell_format)
+                    
+                    table_format['rows'].append(row_format)
+                
+                original_formatting['tables'].append(table_format)
+            
+            logger.info(f"✅ Formatação extraída: {len(original_formatting['paragraphs'])} parágrafos, {len(original_formatting['tables'])} tabelas")
+            
+            # 2. CRIAR NOVO DOCUMENTO COM FORMATAÇÃO ORIGINAL
             base_filename = os.path.basename(contract_path)
             name_without_ext = os.path.splitext(base_filename)[0]
             edited_filename = f"{name_without_ext}_editado.docx"
             edited_filepath = os.path.join(tempfile.gettempdir(), edited_filename)
             
-            # Copiar arquivo original (mantém TUDO: imagens, formatação, etc.)
+            # Copiar documento original como base (para manter headers, footers, imagens)
             shutil.copy2(contract_path, edited_filepath)
-            logger.info(f"📋 Arquivo copiado para: {edited_filepath}")
-            
-            # Carregar o documento copiado
             doc = Document(edited_filepath)
             
-            # DEBUG: Vamos ver o que temos no novo conteúdo
-            logger.info(f"📝 NOVO CONTEÚDO recebido ({len(new_content)} chars):")
-            logger.info(f"Primeiras 500 chars: {new_content[:500]}...")
+            # Limpar apenas o body, preservando headers/footers/imagens
+            body = doc.element.body
+            for element in list(body):
+                body.remove(element)
             
+            logger.info("🧹 Conteúdo limpo, aplicando novo conteúdo com formatação original...")
+            
+            # 3. APLICAR NOVO CONTEÚDO COM FORMATAÇÃO ORIGINAL
             new_lines = new_content.split('\n')
-            logger.info(f"📄 Novo conteúdo tem {len(new_lines)} linhas")
+            para_format_index = 0
+            table_format_index = 0
             
-            # DEBUG: Vamos ver o conteúdo atual do documento
-            current_paragraphs = []
-            current_tables = []
-            
-            para_count = 0
-            table_count = 0
-            
-            logger.info("🔍 MAPEANDO documento atual:")
-            
-            for element in doc.element.body:
-                if element.tag.endswith('p'):  # Parágrafo
-                    para = None
-                    for p in doc.paragraphs:
-                        if p._element == element:
-                            para = p
-                            break
-                    if para:
-                        current_paragraphs.append(para)
-                        logger.info(f"  📝 Parágrafo {para_count}: '{para.text[:100]}...'")
-                        para_count += 1
-                        
-                elif element.tag.endswith('tbl'):  # Tabela
-                    table = None
-                    for t in doc.tables:
-                        if t._element == element:
-                            table = t
-                            break
-                    if table:
-                        current_tables.append(table)
-                        logger.info(f"  📊 Tabela {table_count}: {len(table.rows)} linhas x {len(table.columns)} colunas")
-                        table_count += 1
-            
-            logger.info(f"📊 DOCUMENTO MAPEADO: {len(current_paragraphs)} parágrafos, {len(current_tables)} tabelas")
-            
-            # Agora vamos aplicar as mudanças linha por linha
-            new_line_index = 0
-            para_index = 0
-            table_index = 0
-            changes_made = 0
-            
-            # Processar cada elemento na ordem que aparece no documento
-            for element in doc.element.body:
-                if element.tag.endswith('p') and new_line_index < len(new_lines):  # Parágrafo
-                    new_line = new_lines[new_line_index].strip()
-                    
-                    # Pular linhas de tabela JSON
-                    if "[TABELA_JSON]" in new_line:
-                        new_line_index += 1
-                        continue
-                    
-                    # Encontrar o parágrafo correspondente
-                    para = None
-                    for p in doc.paragraphs:
-                        if p._element == element:
-                            para = p
-                            break
-                    
-                    if para:
-                        current_text = para.text.strip()
-                        
-                        logger.info(f"🔄 Comparando parágrafo {para_index}:")
-                        logger.info(f"   ATUAL: '{current_text}'")
-                        logger.info(f"   NOVO:  '{new_line}'")
-                        
-                        # SEMPRE aplicar o novo texto (não comparar)
-                        logger.info(f"✏️ APLICANDO mudança no parágrafo {para_index}")
-                        
-                        # Verificar se o novo conteúdo está vazio (parágrafo deletado)
-                        if not new_line or new_line.strip() == "":
-                            logger.info(f"🗑️ REMOVENDO parágrafo {para_index} (conteúdo vazio)")
-                            # Limpar completamente o parágrafo
-                            para.clear()
-                            # Deixar parágrafo vazio (será renderizado como espaço)
-                            para.add_run("")
-                        else:
-                            # Preservar formatação do primeiro run
-                            original_format = None
-                            if para.runs:
-                                first_run = para.runs[0]
-                                original_format = {
-                                    'font_name': first_run.font.name,
-                                    'font_size': first_run.font.size,
-                                    'font_bold': first_run.font.bold,
-                                    'font_italic': first_run.font.italic,
-                                }
-                            
-                            # Limpar parágrafo e aplicar novo texto
-                            para.clear()
-                            new_run = para.add_run(new_line)
-                            
-                            # Reaplicar formatação se existia
-                            if original_format:
-                                if original_format['font_name']:
-                                    new_run.font.name = original_format['font_name']
-                                if original_format['font_size']:
-                                    new_run.font.size = original_format['font_size']
-                                if original_format['font_bold']:
-                                    new_run.font.bold = original_format['font_bold']
-                                if original_format['font_italic']:
-                                    new_run.font.italic = original_format['font_italic']
-                        
-                        changes_made += 1
-                        logger.info(f"✅ Parágrafo {para_index} atualizado com sucesso")
-                        
-                        para_index += 1
-                    
-                    new_line_index += 1
+            i = 0
+            while i < len(new_lines):
+                line = new_lines[i]
                 
-                elif element.tag.endswith('tbl') and new_line_index < len(new_lines):  # Tabela
-                    line = new_lines[new_line_index]
-                    
-                    logger.info(f"🔄 Processando linha de tabela {table_index}: {line[:100]}...")
-                    
-                    if "[TABELA_JSON]" in line:
-                        json_match = re.search(r'\[TABELA_JSON\](.*?)\[/TABELA_JSON\]', line)
-                        if json_match and table_index < len(current_tables):
-                            try:
-                                table_data = json.loads(json_match.group(1))
-                                table = current_tables[table_index]
+                # Verificar se é uma tabela JSON
+                if "[TABELA_JSON]" in line:
+                    json_match = re.search(r'\[TABELA_JSON\](.*?)\[/TABELA_JSON\]', line)
+                    if json_match:
+                        try:
+                            table_data = json.loads(json_match.group(1))
+                            
+                            if table_data and len(table_data) > 0:
+                                max_cols = max(len(row) for row in table_data) if table_data else 0
                                 
-                                logger.info(f"✏️ APLICANDO dados na tabela {table_index}: {len(table_data)} linhas")
+                                # Criar tabela
+                                table = doc.add_table(rows=len(table_data), cols=max_cols)
                                 
-                                # Atualizar células mantendo formatação original
-                                for row_idx, row_data in enumerate(table_data):
-                                    if row_idx < len(table.rows):
-                                        row = table.rows[row_idx]
+                                # Aplicar formatação original da tabela se disponível
+                                if table_format_index < len(original_formatting['tables']):
+                                    orig_table_format = original_formatting['tables'][table_format_index]
+                                    table.style = orig_table_format['style_name']
+                                    
+                                    # Aplicar formatação de células
+                                    for row_idx, row_data in enumerate(table_data):
                                         for col_idx, cell_data in enumerate(row_data):
-                                            if col_idx < len(row.cells):
-                                                cell = row.cells[col_idx]
+                                            if (col_idx < max_cols and row_idx < len(table.rows) and
+                                                row_idx < len(orig_table_format['rows']) and
+                                                col_idx < len(orig_table_format['rows'][row_idx]['cells'])):
                                                 
-                                                # Preservar formatação da primeira célula
-                                                original_format = None
-                                                if cell.paragraphs and cell.paragraphs[0].runs:
-                                                    first_run = cell.paragraphs[0].runs[0]
-                                                    original_format = {
-                                                        'font_name': first_run.font.name,
-                                                        'font_size': first_run.font.size,
-                                                        'font_bold': first_run.font.bold,
-                                                        'font_italic': first_run.font.italic,
-                                                    }
+                                                cell = table.rows[row_idx].cells[col_idx]
+                                                orig_cell_format = orig_table_format['rows'][row_idx]['cells'][col_idx]
                                                 
-                                                # Aplicar novo conteúdo
+                                                # Limpar célula e aplicar novo conteúdo
                                                 cell.text = ""
                                                 para = cell.paragraphs[0]
-                                                new_run = para.add_run(str(cell_data))
                                                 
-                                                # Reaplicar formatação
-                                                if original_format:
-                                                    if original_format['font_name']:
-                                                        new_run.font.name = original_format['font_name']
-                                                    if original_format['font_size']:
-                                                        new_run.font.size = original_format['font_size']
-                                                    if original_format['font_bold']:
-                                                        new_run.font.bold = original_format['font_bold']
-                                                    if original_format['font_italic']:
-                                                        new_run.font.italic = original_format['font_italic']
+                                                if orig_cell_format['paragraphs']:
+                                                    orig_para_format = orig_cell_format['paragraphs'][0]
+                                                    
+                                                    # Aplicar alinhamento
+                                                    if orig_para_format['alignment']:
+                                                        para.alignment = orig_para_format['alignment']
+                                                    
+                                                    # Adicionar run com formatação original
+                                                    if orig_para_format['runs_format']:
+                                                        orig_run_format = orig_para_format['runs_format'][0]
+                                                        run = para.add_run(str(cell_data))
+                                                        
+                                                        # Aplicar formatação do run
+                                                        if orig_run_format['font_name']:
+                                                            run.font.name = orig_run_format['font_name']
+                                                        if orig_run_format['font_size']:
+                                                            run.font.size = orig_run_format['font_size']
+                                                        if orig_run_format['bold']:
+                                                            run.font.bold = orig_run_format['bold']
+                                                        if orig_run_format['italic']:
+                                                            run.font.italic = orig_run_format['italic']
+                                                        if orig_run_format['color']:
+                                                            run.font.color.rgb = orig_run_format['color']
+                                                    else:
+                                                        para.add_run(str(cell_data))
+                                                else:
+                                                    para.add_run(str(cell_data))
+                                            elif col_idx < max_cols and row_idx < len(table.rows):
+                                                # Fallback para células sem formatação original
+                                                table.rows[row_idx].cells[col_idx].text = str(cell_data)
+                                    
+                                    table_format_index += 1
+                                else:
+                                    # Fallback: formatação padrão
+                                    table.style = 'Table Grid'
+                                    for row_idx, row_data in enumerate(table_data):
+                                        for col_idx, cell_data in enumerate(row_data):
+                                            if col_idx < max_cols and row_idx < len(table.rows):
+                                                table.rows[row_idx].cells[col_idx].text = str(cell_data)
                                 
-                                changes_made += 1
-                                logger.info(f"✅ Tabela {table_index} atualizada com sucesso")
+                                logger.info(f"📊 Tabela criada com formatação original: {len(table_data)} linhas")
                                 
-                            except json.JSONDecodeError as e:
-                                logger.error(f"❌ Erro ao processar JSON da tabela: {e}")
-                        
-                        table_index += 1
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Erro ao processar tabela JSON: {e}")
+                            if line.strip():
+                                doc.add_paragraph(line)
                     
-                    new_line_index += 1
+                    i += 1
+                
+                else:
+                    # Linha normal - criar parágrafo com formatação original
+                    if line.strip() or para_format_index < len(original_formatting['paragraphs']):
+                        paragraph = doc.add_paragraph()
+                        
+                        # Aplicar formatação original se disponível
+                        if para_format_index < len(original_formatting['paragraphs']):
+                            orig_para_format = original_formatting['paragraphs'][para_format_index]
+                            
+                            # Aplicar estilo
+                            try:
+                                paragraph.style = orig_para_format['style_name']
+                            except:
+                                paragraph.style = 'Normal'
+                            
+                            # Aplicar alinhamento
+                            if orig_para_format['alignment']:
+                                paragraph.alignment = orig_para_format['alignment']
+                            
+                            # Adicionar conteúdo com formatação original
+                            if line.strip():
+                                if orig_para_format['runs_format']:
+                                    # Usar formatação do primeiro run original
+                                    orig_run_format = orig_para_format['runs_format'][0]
+                                    run = paragraph.add_run(line)
+                                    
+                                    # Aplicar toda a formatação
+                                    if orig_run_format['font_name']:
+                                        run.font.name = orig_run_format['font_name']
+                                    if orig_run_format['font_size']:
+                                        run.font.size = orig_run_format['font_size']
+                                    if orig_run_format['bold']:
+                                        run.font.bold = orig_run_format['bold']
+                                    if orig_run_format['italic']:
+                                        run.font.italic = orig_run_format['italic']
+                                    if orig_run_format['underline']:
+                                        run.font.underline = orig_run_format['underline']
+                                    if orig_run_format['color']:
+                                        run.font.color.rgb = orig_run_format['color']
+                                else:
+                                    paragraph.add_run(line)
+                            # Se linha vazia, deixar parágrafo vazio (preserva espaçamento)
+                        else:
+                            # Sem formatação original disponível, usar padrão
+                            if line.strip():
+                                paragraph.add_run(line)
+                                paragraph.style = 'Normal'
+                        
+                        para_format_index += 1
+                    else:
+                        # Parágrafo vazio
+                        doc.add_paragraph()
+                        para_format_index += 1
+                    
+                    i += 1
             
-            # Salvar documento modificado
+            # Salvar documento final
             doc.save(edited_filepath)
-            logger.info(f"💾 Documento salvo com {changes_made} modificações aplicadas")
-            logger.info(f"📁 Arquivo final: {edited_filepath}")
+            logger.info(f"💾 Documento híbrido salvo: {edited_filepath}")
+            logger.info(f"✅ Aplicada formatação de {para_format_index} parágrafos e {table_format_index} tabelas")
             
             return edited_filepath
             
         except Exception as e:
-            logger.error(f"❌ ERRO ao aplicar edições in-place: {str(e)}")
+            logger.error(f"❌ ERRO na aplicação híbrida: {str(e)}")
             logger.exception("Detalhes completos do erro:")
             
             # Fallback: retornar arquivo original
