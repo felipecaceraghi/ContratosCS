@@ -627,9 +627,9 @@ def save_contract_edits(filename):
                 'error': 'Arquivo original não encontrado'
             }), 404
         
-        # Aplicar edições
+        # Aplicar edições preservando formatação original
         contract_service = ContractGenerationService()
-        edited_path = contract_service.apply_text_edits(original_path, data['content'])
+        edited_path = contract_service.apply_selective_edits(original_path, data['content'])
         
         # Retornar informações do arquivo editado
         edited_filename = os.path.basename(edited_path)

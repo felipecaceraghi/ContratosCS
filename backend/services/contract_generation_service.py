@@ -731,6 +731,141 @@ class ContractGenerationService:
             logger.error(f"Erro ao aplicar edições de texto: {str(e)}")
             raise
 
+    def apply_selective_edits(self, contract_path: str, new_content: str) -> str:
+        """
+        Aplica edições preservando a formatação original do documento.
+        Edita apenas o conteúdo das células e parágrafos, mantendo estrutura e formatação.
+        
+        Args:
+            contract_path: Caminho do contrato original
+            new_content: Novo conteúdo com edições
+            
+        Returns:
+            Caminho do novo arquivo editado
+        """
+        try:
+            logger.info(f"Aplicando edições seletivas preservando formatação: {contract_path}")
+            
+            # Carregar documento original preservando toda formatação
+            doc = Document(contract_path)
+            
+            # Dividir novo conteúdo para mapear mudanças
+            import json
+            import re
+            
+            new_lines = new_content.split('\n')
+            
+            # Criar mapeamento de tabelas no novo conteúdo
+            table_edits = {}
+            table_index = 0
+            
+            for line_idx, line in enumerate(new_lines):
+                if "[TABELA_JSON]" in line:
+                    json_match = re.search(r'\[TABELA_JSON\](.*?)\[/TABELA_JSON\]', line)
+                    if json_match:
+                        try:
+                            table_data = json.loads(json_match.group(1))
+                            table_edits[table_index] = table_data
+                            table_index += 1
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Erro ao decodificar JSON da tabela: {e}")
+            
+            # Processar elementos do documento original
+            from docx.oxml.table import CT_Tbl
+            from docx.oxml.text.paragraph import CT_P
+            from docx.table import Table
+            from docx.text.paragraph import Paragraph
+            
+            current_table_index = 0
+            paragraph_content = []
+            
+            # Coletar texto dos parágrafos do novo conteúdo (excluindo marcadores de tabela)
+            for line in new_lines:
+                if not ("[TABELA_JSON]" in line or line.strip() == ""):
+                    paragraph_content.append(line)
+            
+            paragraph_index = 0
+            
+            # Percorrer elementos do documento na ordem original
+            for element in doc.element.body:
+                if isinstance(element, CT_P):
+                    # É um parágrafo - atualizar texto preservando formatação
+                    paragraph = Paragraph(element, doc)
+                    
+                    # Se há conteúdo editado para este parágrafo
+                    if paragraph_index < len(paragraph_content):
+                        new_text = paragraph_content[paragraph_index]
+                        
+                        # Limpar runs existentes preservando formatação do primeiro run
+                        if paragraph.runs and new_text.strip():
+                            # Manter formatação do primeiro run
+                            first_run = paragraph.runs[0]
+                            
+                            # Limpar outros runs
+                            for i in range(len(paragraph.runs) - 1, 0, -1):
+                                p = paragraph._element
+                                p.remove(paragraph.runs[i]._element)
+                            
+                            # Atualizar texto do primeiro run
+                            first_run.text = new_text
+                        elif new_text.strip():
+                            # Se não há runs, criar um novo
+                            paragraph.text = new_text
+                    
+                    if paragraph.text.strip():  # Só avançar se o parágrafo tem conteúdo
+                        paragraph_index += 1
+                        
+                elif isinstance(element, CT_Tbl):
+                    # É uma tabela - atualizar células preservando formatação
+                    table = Table(element, doc)
+                    
+                    if current_table_index in table_edits:
+                        new_table_data = table_edits[current_table_index]
+                        
+                        # Atualizar células preservando formatação
+                        for row_idx, row in enumerate(table.rows):
+                            if row_idx < len(new_table_data):
+                                for col_idx, cell in enumerate(row.cells):
+                                    if col_idx < len(new_table_data[row_idx]):
+                                        new_cell_text = str(new_table_data[row_idx][col_idx])
+                                        
+                                        # Preservar formatação da célula
+                                        for paragraph in cell.paragraphs:
+                                            if paragraph.runs:
+                                                # Manter formatação do primeiro run
+                                                first_run = paragraph.runs[0]
+                                                
+                                                # Limpar outros runs
+                                                for i in range(len(paragraph.runs) - 1, 0, -1):
+                                                    p = paragraph._element
+                                                    p.remove(paragraph.runs[i]._element)
+                                                
+                                                # Atualizar texto
+                                                first_run.text = new_cell_text
+                                                break
+                                            else:
+                                                # Se não há runs, definir texto diretamente
+                                                paragraph.text = new_cell_text
+                                                break
+                    
+                    current_table_index += 1
+            
+            # Salvar arquivo editado
+            base_filename = os.path.basename(contract_path)
+            name_without_ext = os.path.splitext(base_filename)[0]
+            edited_filename = f"{name_without_ext}_editado.docx"
+            edited_filepath = os.path.join(tempfile.gettempdir(), edited_filename)
+            
+            doc.save(edited_filepath)
+            logger.info(f"Contrato editado (formatação preservada) salvo: {edited_filepath}")
+            
+            return edited_filepath
+            
+        except Exception as e:
+            logger.error(f"Erro ao aplicar edições seletivas: {str(e)}")
+            # Fallback para método antigo em caso de erro
+            return self.apply_text_edits(contract_path, new_content)
+
     def validate_template(self):
         try:
             doc = Document(self.template_path)
