@@ -3,6 +3,23 @@
 import React, { useState, useEffect } from 'react';
 import { contractsAPI } from '@/lib/api';
 
+// Estilos para animação do toast
+const styles = {
+  '@keyframes fadeInDown': {
+    '0%': {
+      opacity: 0,
+      transform: 'translateY(-20px)'
+    },
+    '100%': {
+      opacity: 1,
+      transform: 'translateY(0)'
+    }
+  },
+  '.animate-fade-in-down': {
+    animation: 'fadeInDown 0.5s ease-out forwards'
+  }
+};
+
 interface ContractViewerProps {
   filename: string;
   companyName: string;
@@ -22,6 +39,8 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editableTables, setEditableTables] = useState<any[]>([]);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
 
   // Função para renderizar tabela editável
   const renderEditableTable = (tableData: string[][], tableIndex: number) => {
@@ -345,21 +364,63 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
 
   const handleDownload = async () => {
     try {
-      const response = await contractsAPI.download(filename);
+      // Mostrar toast informando o usuário
+      setToastMessage('Iniciando downloads (DOCX e PDF)...');
+      setShowToast(true);
       
-      if (response.data) {
-        const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `contrato_${companyName.replace(/[^a-zA-Z0-9]/g, '_')}.docx`;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.URL.revokeObjectURL(url);
+      // Download do DOCX
+      const docxResponse = await contractsAPI.download(filename);
+      
+      if (docxResponse.data) {
+        const docxBlob = new Blob([docxResponse.data], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+        const docxUrl = window.URL.createObjectURL(docxBlob);
+        const docxLink = document.createElement('a');
+        docxLink.href = docxUrl;
+        docxLink.download = `contrato_${companyName.replace(/[^a-zA-Z0-9]/g, '_')}.docx`;
+        document.body.appendChild(docxLink);
+        docxLink.click();
+        docxLink.remove();
+        window.URL.revokeObjectURL(docxUrl);
+        
+        setToastMessage('DOCX baixado com sucesso! Preparando PDF...');
+      }
+      
+      // Download do PDF logo em seguida
+      try {
+        const pdfResponse = await contractsAPI.downloadAsPdf(filename);
+        
+        if (pdfResponse.data) {
+          const pdfBlob = new Blob([pdfResponse.data], { type: 'application/pdf' });
+          const pdfUrl = window.URL.createObjectURL(pdfBlob);
+          const pdfLink = document.createElement('a');
+          pdfLink.href = pdfUrl;
+          pdfLink.download = `contrato_${companyName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+          setTimeout(() => {
+            document.body.appendChild(pdfLink);
+            pdfLink.click();
+            pdfLink.remove();
+            window.URL.revokeObjectURL(pdfUrl);
+            setToastMessage('DOCX e PDF baixados com sucesso!');
+            
+            // Esconder toast após alguns segundos
+            setTimeout(() => {
+              setShowToast(false);
+            }, 3000);
+          }, 1000); // Pequeno delay para não bloquear o download do DOCX
+        }
+      } catch (pdfError) {
+        console.error('Erro ao fazer download do PDF:', pdfError);
+        setToastMessage('DOCX baixado, mas houve um erro ao gerar o PDF.');
+        setTimeout(() => {
+          setShowToast(false);
+        }, 3000);
       }
     } catch (error) {
       console.error('Erro ao fazer download:', error);
+      setToastMessage('Erro ao fazer download dos arquivos.');
+      setTimeout(() => {
+        setShowToast(false);
+      }, 3000);
     }
   };
 
@@ -382,6 +443,18 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      {/* Toast de notificação */}
+      {showToast && (
+        <div className="fixed top-4 right-4 z-50 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center space-x-2 animate-fade-in-down">
+          <div className="flex-shrink-0">
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <p>{toastMessage}</p>
+        </div>
+      )}
+      
       <div className="bg-white rounded-lg shadow-xl w-full h-full max-w-7xl max-h-[95vh] flex flex-col">
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b border-gray-200 bg-gray-50">
@@ -419,7 +492,7 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
                   onClick={handleDownload}
                   className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
                 >
-                  📥 Baixar
+                  📥 Baixar (DOCX + PDF)
                 </button>
               </>
             ) : (
@@ -445,7 +518,7 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
                       Salvando...
                     </div>
                   ) : (
-                    '💾 Salvar e Baixar'
+                    '💾 Salvar e Baixar (DOCX + PDF)'
                   )}
                 </button>
               </>

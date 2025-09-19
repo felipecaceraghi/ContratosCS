@@ -3,6 +3,23 @@
 import React, { useState, useEffect } from 'react';
 import { contractsAPI } from '@/lib/api';
 
+// Estilos para animação do toast
+const styles = {
+  '@keyframes fadeInDown': {
+    '0%': {
+      opacity: 0,
+      transform: 'translateY(-20px)'
+    },
+    '100%': {
+      opacity: 1,
+      transform: 'translateY(0)'
+    }
+  },
+  '.animate-fade-in-down': {
+    animation: 'fadeInDown 0.5s ease-out forwards'
+  }
+};
+
 interface ContractEditorProps {
   filename: string;
   companyName: string;
@@ -31,6 +48,8 @@ const ContractEditor: React.FC<ContractEditorProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
 
   useEffect(() => {
     loadContractContent();
@@ -93,6 +112,68 @@ const ContractEditor: React.FC<ContractEditorProps> = ({
 
       if (response.success) {
         console.log('Edições aplicadas com sucesso:', response.filename);
+        
+        // Mostrar toast informando o usuário
+        setToastMessage('Iniciando downloads (DOCX e PDF)...');
+        setShowToast(true);
+        
+        // Download do DOCX
+        try {
+          const docxResponse = await contractsAPI.download(response.filename);
+          
+          if (docxResponse.data) {
+            const docxBlob = new Blob([docxResponse.data], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+            const docxUrl = window.URL.createObjectURL(docxBlob);
+            const docxLink = document.createElement('a');
+            docxLink.href = docxUrl;
+            docxLink.download = `contrato_${companyName.replace(/[^a-zA-Z0-9]/g, '_')}.docx`;
+            document.body.appendChild(docxLink);
+            docxLink.click();
+            docxLink.remove();
+            window.URL.revokeObjectURL(docxUrl);
+            
+            setToastMessage('DOCX baixado com sucesso! Preparando PDF...');
+          }
+          
+          // Download do PDF logo em seguida
+          try {
+            const pdfResponse = await contractsAPI.downloadAsPdf(response.filename);
+            
+            if (pdfResponse.data) {
+              const pdfBlob = new Blob([pdfResponse.data], { type: 'application/pdf' });
+              const pdfUrl = window.URL.createObjectURL(pdfBlob);
+              const pdfLink = document.createElement('a');
+              pdfLink.href = pdfUrl;
+              pdfLink.download = `contrato_${companyName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+              setTimeout(() => {
+                document.body.appendChild(pdfLink);
+                pdfLink.click();
+                pdfLink.remove();
+                window.URL.revokeObjectURL(pdfUrl);
+                setToastMessage('DOCX e PDF baixados com sucesso!');
+                
+                // Esconder toast após alguns segundos
+                setTimeout(() => {
+                  setShowToast(false);
+                }, 3000);
+              }, 1000); // Pequeno delay para não bloquear o download do DOCX
+            }
+          } catch (pdfError) {
+            console.error('Erro ao fazer download do PDF:', pdfError);
+            setToastMessage('DOCX baixado, mas houve um erro ao gerar o PDF.');
+            setTimeout(() => {
+              setShowToast(false);
+            }, 3000);
+          }
+        } catch (downloadError) {
+          console.error('Erro ao fazer download dos arquivos:', downloadError);
+          setToastMessage('Erro ao fazer download dos arquivos.');
+          setTimeout(() => {
+            setShowToast(false);
+          }, 3000);
+        }
+        
+        // Continuar o fluxo normal
         onSave(response.filename);
       } else {
         setError(response.error || 'Erro ao salvar edições');
@@ -120,6 +201,18 @@ const ContractEditor: React.FC<ContractEditorProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      {/* Toast de notificação */}
+      {showToast && (
+        <div className="fixed top-4 right-4 z-50 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center space-x-2">
+          <div className="flex-shrink-0">
+            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <p>{toastMessage}</p>
+        </div>
+      )}
+      
       <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b">
@@ -233,7 +326,7 @@ const ContractEditor: React.FC<ContractEditorProps> = ({
                 Salvando...
               </>
             ) : (
-              'Salvar e Baixar'
+              'Salvar e Baixar (DOCX + PDF)'
             )}
           </button>
         </div>
