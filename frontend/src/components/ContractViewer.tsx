@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { contractsAPI } from '@/lib/api';
 import { downloadBothFormats } from '@/lib/document-utils';
+import { toast } from '@/lib/toast';
 
 // Estilos para animação do toast
 const styles = {
@@ -139,12 +140,67 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
     setEditedContent(newContent);
   };
 
+  // Armazenar partes de texto separadamente
+  const [textParts, setTextParts] = useState<{[key: string]: string}>({});
+  
+  // Função para atualizar uma parte de texto
+  const updateTextPart = (key: string, value: string) => {
+    const newTextParts = { ...textParts };
+    newTextParts[key] = value;
+    setTextParts(newTextParts);
+    
+    // Atualizar o conteúdo editado
+    setTimeout(() => {
+      updateFullEditedContent();
+    }, 0);
+  };
+  
+  // Função para atualizar todo o conteúdo editado (tabelas + texto)
+  const updateFullEditedContent = () => {
+    let newContent = content;
+    
+    // Primeiro substituir as tabelas
+    let tableIndex = 0;
+    newContent = newContent.replace(/\[TABELA_JSON\](.*?)\[\/TABELA_JSON\]/g, (match, jsonString) => {
+      try {
+        const originalData = JSON.parse(jsonString);
+        const editedData = editableTables[tableIndex] || originalData;
+        const updatedJson = JSON.stringify(editedData);
+        tableIndex++;
+        return `[TABELA_JSON]${updatedJson}[/TABELA_JSON]`;
+      } catch (e) {
+        console.error('Erro ao processar tabela:', e);
+        return match;
+      }
+    });
+    
+    // Depois substituir as partes de texto
+    Object.entries(textParts).forEach(([key, value]) => {
+      const marker = `[TEXT_PART:${key}]`;
+      const endMarker = `[/TEXT_PART:${key}]`;
+      
+      const startIdx = newContent.indexOf(marker);
+      const endIdx = newContent.indexOf(endMarker);
+      
+      if (startIdx !== -1 && endIdx !== -1) {
+        const before = newContent.substring(0, startIdx + marker.length);
+        const after = newContent.substring(endIdx);
+        newContent = before + value + after;
+      }
+    });
+    
+    setEditedContent(newContent);
+  };
+  
   // Função para processar conteúdo editável com tabelas e texto
   const processEditableContent = (content: string) => {
+    // Adicionar marcadores especiais ao conteúdo para identificar partes de texto
+    let processedContent = content;
     const parts: React.ReactNode[] = [];
     let currentText = '';
     let i = 0;
     let tableIndex = 0;
+    let textPartIndex = 0;
     
     while (i < content.length) {
       const tableStart = content.indexOf('[TABELA_JSON]', i);
@@ -157,17 +213,28 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
       // Adicionar texto antes da tabela
       currentText += content.substring(i, tableStart);
       if (currentText.trim()) {
+        const textKey = `text-${textPartIndex}`;
+        textPartIndex++;
+        
+        // Inicializar o texto no estado se ainda não existir
+        if (!textParts[textKey]) {
+          setTextParts(prev => ({...prev, [textKey]: currentText}));
+        }
+        
         parts.push(
-          <div key={`text-${parts.length}`} className="whitespace-pre-wrap my-4 p-4 bg-white border border-gray-300 rounded-lg">
+          <div key={textKey} className="whitespace-pre-wrap my-4 p-4 bg-white border border-gray-300 rounded-lg">
             <textarea
-              value={currentText}
+              value={textParts[textKey] || currentText}
               onChange={(e) => {
-                // Implementar atualização de texto se necessário
-                console.log('Texto editado:', e.target.value);
+                updateTextPart(textKey, e.target.value);
               }}
-              className="w-full min-h-[100px] border-none resize-none focus:outline-none bg-transparent"
+              className="w-full min-h-[100px] border-none resize-none focus:outline-none bg-transparent focus:bg-yellow-50"
               placeholder="Editar texto..."
             />
+            {/* Adicionar marcadores invisíveis no conteúdo */}
+            <div style={{ display: 'none' }}>
+              [TEXT_PART:{textKey}]{textParts[textKey] || currentText}[/TEXT_PART:{textKey}]
+            </div>
           </div>
         );
         currentText = '';
@@ -197,20 +264,32 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
     
     // Adicionar texto final
     if (currentText.trim()) {
+      const textKey = `text-final`;
+      
+      // Inicializar o texto no estado se ainda não existir
+      if (!textParts[textKey]) {
+        setTextParts(prev => ({...prev, [textKey]: currentText}));
+      }
+      
       parts.push(
-        <div key={`text-final`} className="whitespace-pre-wrap my-4 p-4 bg-white border border-gray-300 rounded-lg">
+        <div key={textKey} className="whitespace-pre-wrap my-4 p-4 bg-white border border-gray-300 rounded-lg">
           <textarea
-            value={currentText}
+            value={textParts[textKey] || currentText}
             onChange={(e) => {
-              // Implementar atualização de texto se necessário
-              console.log('Texto final editado:', e.target.value);
+              updateTextPart(textKey, e.target.value);
             }}
-            className="w-full min-h-[100px] border-none resize-none focus:outline-none bg-transparent"
+            className="w-full min-h-[100px] border-none resize-none focus:outline-none bg-transparent focus:bg-yellow-50"
             placeholder="Editar texto..."
           />
+          {/* Adicionar marcadores invisíveis no conteúdo */}
+          <div style={{ display: 'none' }}>
+            [TEXT_PART:{textKey}]{textParts[textKey] || currentText}[/TEXT_PART:{textKey}]
+          </div>
         </div>
       );
     }
+    
+    return parts;
     
     return parts;
   };
@@ -341,24 +420,34 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
     try {
       setIsSaving(true);
       
-      // Atualizar conteúdo editado antes de salvar
-      updateEditedContent();
+      // Atualizar o conteúdo editado com tabelas E texto antes de salvar
+      updateFullEditedContent();
       
-      const response = await contractsAPI.saveEdits(filename, editedContent);
-      
-      if (response.success) {
-        await handleDownload();
-        
-        if (onSave) {
-          onSave();
+      // Garantir que as alterações foram atualizadas no estado
+      // antes de chamar a API usando setTimeout
+      setTimeout(async () => {
+        try {
+          const response = await contractsAPI.saveEdits(filename, editedContent);
+          
+          if (response.success) {
+            await handleDownload();
+            
+            if (onSave) {
+              onSave();
+            }
+          } else {
+            alert('Erro ao salvar alterações');
+          }
+        } catch (error) {
+          console.error('Erro ao salvar:', error);
+          alert('Erro ao salvar alterações');
+        } finally {
+          setIsSaving(false);
         }
-      } else {
-        alert('Erro ao salvar alterações');
-      }
+      }, 100);
     } catch (error) {
       console.error('Erro ao salvar:', error);
       alert('Erro ao salvar alterações');
-    } finally {
       setIsSaving(false);
     }
   };
