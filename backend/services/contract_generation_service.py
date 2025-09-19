@@ -270,13 +270,12 @@ class ContractGenerationService:
             ]
             return fallback_text, fallback_companies
     
-    def generate_contract(self, company_data: Dict[str, Any], output_format: str = 'docx') -> str:
+    def generate_contract(self, company_data: Dict[str, Any]) -> str:
         """
         Gera um contrato preenchido com os dados da empresa
         
         Args:
             company_data: Dados da empresa contendo as informações necessárias
-            output_format: Formato do arquivo de saída ('docx' ou 'pdf')
             
         Returns:
             Caminho para o arquivo temporário gerado
@@ -286,8 +285,6 @@ class ContractGenerationService:
             FileNotFoundError: Se template não existir
         """
         try:
-            from docx2pdf import convert
-            
             logger.info(f"Iniciando geração de contrato para empresa: {company_data.get('razao_social', 'N/A')}")
             
             # Validar dados obrigatórios
@@ -370,30 +367,39 @@ class ContractGenerationService:
             logger.info(f"Texto das empresas BPO gerado: {empresas_bpo_texto[:100]}...")
             
             # Gerar nome único para arquivo temporário
-            temp_filename_docx = f"contrato_{company_data['cnpj'].replace('.', '').replace('/', '').replace('-', '')}_{hash(company_data['razao_social']) % 10000}.docx"
-            temp_filepath_docx = os.path.join(tempfile.gettempdir(), temp_filename_docx)
+            temp_filename = f"contrato_{company_data['cnpj'].replace('.', '').replace('/', '').replace('-', '')}_{hash(company_data['razao_social']) % 10000}.docx"
+            temp_filepath = os.path.join(tempfile.gettempdir(), temp_filename)
             
             # Salvar documento preenchido
-            doc.save(temp_filepath_docx)
-            logger.info(f"Contrato DOCX gerado com sucesso: {temp_filepath_docx}")
-
-            if output_format == 'pdf':
-                temp_filepath_pdf = temp_filepath_docx.replace('.docx', '.pdf')
-                try:
-                    logger.info(f"Convertendo {temp_filepath_docx} para PDF...")
-                    convert(temp_filepath_docx, temp_filepath_pdf)
-                    logger.info(f"Convertido com sucesso para {temp_filepath_pdf}")
-                    os.remove(temp_filepath_docx)  # Remover DOCX intermediário
-                    return temp_filepath_pdf
-                except Exception as e:
-                    logger.error(f"Falha ao converter para PDF: {e}")
-                    raise RuntimeError(f"Falha na conversão para PDF: {e}") from e
+            doc.save(temp_filepath)
             
-            return temp_filepath_docx
+            logger.info(f"Contrato gerado com sucesso: {temp_filepath}")
+            return temp_filepath
             
         except Exception as e:
             logger.error(f"Erro ao gerar contrato: {str(e)}")
             raise
+
+    def convert_to_pdf(self, docx_path: str) -> str:
+        """
+        Converte um arquivo .docx existente para .pdf.
+
+        Args:
+            docx_path: O caminho absoluto para o arquivo .docx.
+
+        Returns:
+            O caminho para o arquivo .pdf gerado.
+        """
+        try:
+            from docx2pdf import convert
+            pdf_path = docx_path.replace('.docx', '.pdf')
+            logger.info(f"Convertendo {docx_path} para PDF...")
+            convert(docx_path, pdf_path)
+            logger.info(f"Convertido com sucesso para {pdf_path}")
+            return pdf_path
+        except Exception as e:
+            logger.error(f"Falha ao converter para PDF: {e}")
+            raise RuntimeError(f"Falha na conversão para PDF: {e}") from e
     
     def get_template_fields(self) -> list:
         """

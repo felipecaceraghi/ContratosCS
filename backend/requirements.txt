@@ -1,7 +1,7 @@
 fuzzywuzzy
 # Required for contract_generation_service.py
 python-docx
-docx2pdf==0.7.4
+docx2pdf==0.1.8
 bcrypt==4.3.0
 blinker==1.9.0
 click==8.2.1

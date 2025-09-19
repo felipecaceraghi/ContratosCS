@@ -41,7 +41,6 @@ const ContractGenerator: React.FC<ContractGeneratorProps> = ({
     companyName: string;
     stepIndex: number;
   } | null>(null);
-  const [downloading, setDownloading] = useState<string | null>(null); // Estado para download
 
   const handleGenerateContracts = async () => {
     if (selectedCompanies.length === 0) return;
@@ -156,40 +155,6 @@ const ContractGenerator: React.FC<ContractGeneratorProps> = ({
         setCurrentStepIndex(stepIndex + 1);
         generateNextContract(updatedSteps, stepIndex + 1);
       }, 1000);
-    }
-  };
-
-  const handleDirectDownload = async (cod: string, format: 'docx' | 'pdf', companyName: string) => {
-    const downloadKey = `${cod}-${format}`;
-    setDownloading(downloadKey);
-    try {
-      const response = await contractsAPI.generateAndDownloadIndividual(cod, format);
-      
-      // Extrair nome do arquivo do header
-      const contentDisposition = response.headers['content-disposition'];
-      let filename = `contrato-${companyName.replace(/ /g, '_')}.${format}`;
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
-        if (filenameMatch && filenameMatch.length > 1) {
-          filename = filenameMatch[1];
-        }
-      }
-
-      // Criar link para download
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', filename);
-      document.body.appendChild(link);
-      link.click();
-      link.parentNode?.removeChild(link);
-      window.URL.revokeObjectURL(url);
-
-    } catch (error) {
-      console.error('Erro no download direto:', error);
-      // Adicionar feedback de erro para o usuário se necessário
-    } finally {
-      setDownloading(null);
     }
   };
 
@@ -341,7 +306,7 @@ const ContractGenerator: React.FC<ContractGeneratorProps> = ({
                         </div>
                       </div>
                     </div>
-                    <div className="text-right space-x-2 flex items-center">
+                    <div className="text-right">
                       <div className="text-xs" style={{ color: '#000000' }}>
                         {getStatusText(step.status)}
                       </div>
@@ -351,28 +316,12 @@ const ContractGenerator: React.FC<ContractGeneratorProps> = ({
                         </div>
                       )}
                       {(step.status === 'generated' || step.status === 'completed') && step.filename && (
-                        <>
-                          <button
-                            onClick={() => handleEditContract(index)}
-                            className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-                          >
-                            Editar
-                          </button>
-                          <button
-                            onClick={() => handleDirectDownload(step.company.cod, 'docx', step.company.name)}
-                            disabled={downloading === `${step.company.cod}-docx`}
-                            className="text-xs px-2 py-1 bg-gray-600 text-white rounded hover:bg-gray-700 disabled:bg-gray-300"
-                          >
-                            {downloading === `${step.company.cod}-docx` ? 'Baixando...' : 'Baixar DOCX'}
-                          </button>
-                          <button
-                            onClick={() => handleDirectDownload(step.company.cod, 'pdf', step.company.name)}
-                            disabled={downloading === `${step.company.cod}-pdf`}
-                            className="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:bg-gray-300"
-                          >
-                            {downloading === `${step.company.cod}-pdf` ? 'Baixando...' : 'Baixar PDF'}
-                          </button>
-                        </>
+                        <button
+                          onClick={() => handleEditContract(index)}
+                          className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 mt-1"
+                        >
+                          Editar
+                        </button>
                       )}
                     </div>
                   </div>

@@ -188,7 +188,7 @@ def generate_contract():
 @jwt_required()
 def generate_individual_contract():
     """
-    Gera um contrato para uma empresa específica e retorna o arquivo diretamente.
+    Gera um contrato para uma empresa específica usando código da empresa
     """
     try:
         user_id = get_jwt_identity()
@@ -201,8 +201,7 @@ def generate_individual_contract():
             }), 400
         
         cod = data['cod']
-        file_format = data.get('format', 'docx') # 'docx' ou 'pdf'
-        logger.info(f"Usuário {user_id} solicitou geração de contrato para empresa: {cod} no formato: {file_format}")
+        logger.info(f"Usuário {user_id} solicitou geração de contrato para empresa: {cod}")
         
         # Buscar dados da empresa na tabela companies_data
         db_path = os.getenv('DATABASE_PATH', 'infra/contracts.db')
@@ -270,23 +269,22 @@ def generate_individual_contract():
         
         # Gerar contrato
         contract_service = ContractGenerationService()
-        contract_path = contract_service.generate_contract(contract_data, output_format=file_format)
+        contract_path = contract_service.generate_contract(contract_data)
         
-        # Definir mimetype e nome do arquivo de download
-        if file_format == 'pdf':
-            mimetype = 'application/pdf'
-            download_name = os.path.basename(contract_path)
-        else:
-            mimetype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-            download_name = os.path.basename(contract_path)
-
-        # Enviar arquivo diretamente
-        return send_file(
-            contract_path,
-            as_attachment=True,
-            download_name=download_name,
-            mimetype=mimetype
-        )
+        # Retornar informações do arquivo gerado
+        filename = os.path.basename(contract_path)
+        
+        return jsonify({
+            'success': True,
+            'message': 'Contrato gerado com sucesso',
+            'contract_file': filename,
+            'download_url': f'/api/contracts/download/{filename}',
+            'company_data': {
+                'cod': cod,
+                'razao_social': razao_social,
+                'cnpj': cnpj
+            }
+        })
         
     except Exception as e:
         logger.error(f"Erro interno ao gerar contrato individual: {str(e)}")
@@ -296,6 +294,65 @@ def generate_individual_contract():
         }), 500
 
 
+
+@contracts_bp.route('/download/<filename>', methods=['GET'])
+@jwt_required()
+def download_contract(filename):
+    """
+    Faz download de um contrato .docx gerado.
+    """
+    try:
+        user_id = get_jwt_identity()
+        logger.info(f"Usuário {user_id} solicitou download do arquivo: {filename}")
+        
+        if '..' in filename or '/' in filename:
+            return jsonify({'success': False, 'error': 'Nome de arquivo inválido'}), 400
+        
+        file_path = os.path.join(tempfile.gettempdir(), filename)
+        
+        if not os.path.exists(file_path):
+            return jsonify({'success': False, 'error': 'Arquivo não encontrado'}), 404
+        
+        return send_file(
+            file_path,
+            as_attachment=True,
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        )
+        
+    except Exception as e:
+        logger.error(f"Erro ao fazer download do DOCX: {str(e)}")
+        return jsonify({'success': False, 'error': 'Erro interno do servidor'}), 500
+
+@contracts_bp.route('/download-as-pdf/<filename>', methods=['GET'])
+@jwt_required()
+def download_as_pdf(filename):
+    """
+    Converte um contrato .docx existente para .pdf e faz o download.
+    """
+    try:
+        user_id = get_jwt_identity()
+        logger.info(f"Usuário {user_id} solicitou download como PDF para o arquivo: {filename}")
+
+        if not filename.endswith('.docx') or '..' in filename or '/' in filename:
+            return jsonify({'success': False, 'error': 'Nome de arquivo inválido'}), 400
+
+        docx_path = os.path.join(tempfile.gettempdir(), filename)
+
+        if not os.path.exists(docx_path):
+            return jsonify({'success': False, 'error': 'Arquivo DOCX original não encontrado'}), 404
+
+        contract_service = ContractGenerationService()
+        pdf_path = contract_service.convert_to_pdf(docx_path)
+
+        return send_file(
+            pdf_path,
+            as_attachment=True,
+            mimetype='application/pdf'
+        )
+
+    except Exception as e:
+        logger.error(f"Erro ao converter e baixar PDF: {str(e)}")
+        return jsonify({'success': False, 'error': 'Erro interno do servidor ao gerar PDF'}), 500
 
 @contracts_bp.route('/template/info', methods=['GET'])
 @jwt_required()

@@ -129,14 +129,6 @@ export const contractsAPI = {
     return response.data;
   },
 
-  generateAndDownloadIndividual: async (cod: string, format: 'docx' | 'pdf') => {
-    const response = await api.post('/api/contracts/generate-individual', 
-      { cod, format },
-      { responseType: 'blob' }
-    );
-    return response;
-  },
-
   preview: async (cnpj: string) => {
     const response = await api.post('/api/contracts/preview', { cnpj });
     return response.data;
@@ -144,6 +136,13 @@ export const contractsAPI = {
 
   download: async (filename: string) => {
     const response = await api.get(`/api/contracts/download/${filename}`, {
+      responseType: 'blob'
+    });
+    return response;
+  },
+
+  downloadAsPdf: async (filename: string) => {
+    const response = await api.get(`/api/contracts/download-as-pdf/${filename}`, {
       responseType: 'blob'
     });
     return response;
