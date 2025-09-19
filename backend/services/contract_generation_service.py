@@ -748,7 +748,7 @@ class ContractGenerationService:
     def apply_selective_edits(self, contract_path: str, new_content: str) -> str:
         """
         Aplica edições preservando a formatação original do documento.
-        Reconstrói o documento baseado no conteúdo editado, mantendo formatação.
+        Reconstrói o documento baseado no conteúdo editado, copiando formatação do original.
         
         Args:
             contract_path: Caminho do contrato original
@@ -776,13 +776,66 @@ class ContractGenerationService:
             section.top_margin = orig_section.top_margin
             section.bottom_margin = orig_section.bottom_margin
             
+            # Copiar estilos do documento original
+            for style in original_doc.styles:
+                try:
+                    if style.name not in doc.styles:
+                        new_style = doc.styles.add_style(style.name, style.type)
+                        if hasattr(style, 'font'):
+                            new_style.font.name = style.font.name
+                            new_style.font.size = style.font.size
+                            new_style.font.bold = style.font.bold
+                            new_style.font.italic = style.font.italic
+                except:
+                    pass  # Ignore if style can't be copied
+            
+            # Coletar formatação de parágrafos e tabelas do documento original
+            original_paragraph_formats = []
+            original_table_formats = []
+            
+            from docx.oxml.table import CT_Tbl
+            from docx.oxml.text.paragraph import CT_P
+            from docx.table import Table
+            from docx.text.paragraph import Paragraph
+            
+            for element in original_doc.element.body:
+                if isinstance(element, CT_P):
+                    paragraph = Paragraph(element, original_doc)
+                    format_info = {
+                        'style': paragraph.style.name if paragraph.style else 'Normal',
+                        'alignment': paragraph.alignment,
+                        'font_name': None,
+                        'font_size': None,
+                        'bold': False,
+                        'italic': False
+                    }
+                    
+                    if paragraph.runs:
+                        first_run = paragraph.runs[0]
+                        format_info['font_name'] = first_run.font.name
+                        format_info['font_size'] = first_run.font.size
+                        format_info['bold'] = first_run.font.bold
+                        format_info['italic'] = first_run.font.italic
+                    
+                    original_paragraph_formats.append(format_info)
+                    
+                elif isinstance(element, CT_Tbl):
+                    table = Table(element, original_doc)
+                    table_format = {
+                        'style': table.style.name if table.style else 'Table Grid'
+                    }
+                    original_table_formats.append(table_format)
+            
             # Dividir novo conteúdo para processar
             import json
             import re
             
             new_lines = new_content.split('\n')
             
-            logger.info(f"Reconstruindo documento com {len(new_lines)} linhas de conteúdo editado")
+            logger.info(f"Reconstruindo documento com {len(new_lines)} linhas, preservando formatação")
+            
+            paragraph_format_index = 0
+            table_format_index = 0
             
             i = 0
             while i < len(new_lines):
@@ -800,33 +853,44 @@ class ContractGenerationService:
                                 # Determinar número de colunas
                                 max_cols = max(len(row) for row in table_data) if table_data else 0
                                 
-                                # Criar tabela com formatação padrão
+                                # Criar tabela com formatação original
                                 table = doc.add_table(rows=len(table_data), cols=max_cols)
-                                table.style = 'Table Grid'
                                 
-                                # Preencher dados
+                                # Aplicar estilo da tabela original se disponível
+                                if table_format_index < len(original_table_formats):
+                                    table_format = original_table_formats[table_format_index]
+                                    table.style = table_format['style']
+                                else:
+                                    table.style = 'Table Grid'
+                                
+                                # Preencher dados preservando formatação de células
                                 for row_idx, row_data in enumerate(table_data):
                                     for col_idx, cell_data in enumerate(row_data):
                                         if col_idx < max_cols and row_idx < len(table.rows):
                                             cell = table.rows[row_idx].cells[col_idx]
                                             
-                                            # Limpar célula e adicionar texto
+                                            # Limpar célula
                                             cell.text = ""
                                             paragraph = cell.paragraphs[0]
                                             run = paragraph.add_run(str(cell_data))
                                             
-                                            # Aplicar formatação básica
-                                            if row_idx <= 1:  # Cabeçalho
+                                            # Aplicar formatação de cabeçalho se necessário
+                                            if row_idx <= 1:  # Primeiras duas linhas como cabeçalho
                                                 run.bold = True
                                                 paragraph.alignment = 1  # Centro
                                 
-                                logger.info(f"Tabela reconstruída com {len(table_data)} linhas e {max_cols} colunas")
+                                table_format_index += 1
+                                logger.info(f"Tabela reconstruída com formatação preservada: {len(table_data)} linhas e {max_cols} colunas")
                                 
                         except json.JSONDecodeError as e:
                             logger.error(f"Erro ao decodificar JSON da tabela: {e}")
                             # Em caso de erro, adicionar como texto normal
                             if line.strip():
-                                doc.add_paragraph(line)
+                                paragraph = doc.add_paragraph(line)
+                                # Aplicar formatação de parágrafo original se disponível
+                                if paragraph_format_index < len(original_paragraph_formats):
+                                    self._apply_paragraph_format(paragraph, original_paragraph_formats[paragraph_format_index])
+                                    paragraph_format_index += 1
                     
                     i += 1
                 
@@ -834,11 +898,20 @@ class ContractGenerationService:
                     # Linha normal - adicionar como parágrafo
                     if line.strip():
                         paragraph = doc.add_paragraph(line)
-                        # Aplicar formatação padrão
-                        paragraph.style = 'Normal'
+                        
+                        # Aplicar formatação do parágrafo original correspondente
+                        if paragraph_format_index < len(original_paragraph_formats):
+                            self._apply_paragraph_format(paragraph, original_paragraph_formats[paragraph_format_index])
+                        else:
+                            # Usar formatação padrão se não há mais formatações originais
+                            paragraph.style = 'Normal'
+                        
+                        paragraph_format_index += 1
                     else:
                         # Parágrafo vazio para espaçamento
-                        doc.add_paragraph()
+                        paragraph = doc.add_paragraph()
+                        paragraph_format_index += 1
+                    
                     i += 1
             
             # Salvar arquivo editado
@@ -848,8 +921,8 @@ class ContractGenerationService:
             edited_filepath = os.path.join(tempfile.gettempdir(), edited_filename)
             
             doc.save(edited_filepath)
-            logger.info(f"Documento completamente reconstruído salvo: {edited_filepath}")
-            logger.info(f"Documento reconstruído com {len(new_lines)} linhas baseado no conteúdo editado")
+            logger.info(f"Documento reconstruído com formatação preservada salvo: {edited_filepath}")
+            logger.info(f"Aplicadas formatações de {paragraph_format_index} parágrafos e {table_format_index} tabelas")
             
             return edited_filepath
             
@@ -858,6 +931,34 @@ class ContractGenerationService:
             logger.exception("Detalhes do erro:")
             # Fallback para método antigo em caso de erro
             return self.apply_text_edits(contract_path, new_content)
+    
+    def _apply_paragraph_format(self, paragraph, format_info):
+        """
+        Aplica formatação a um parágrafo baseado nas informações extraídas
+        """
+        try:
+            # Aplicar estilo
+            if format_info['style']:
+                paragraph.style = format_info['style']
+            
+            # Aplicar alinhamento
+            if format_info['alignment'] is not None:
+                paragraph.alignment = format_info['alignment']
+            
+            # Aplicar formatação de fonte se há runs
+            if paragraph.runs and format_info['font_name']:
+                for run in paragraph.runs:
+                    if format_info['font_name']:
+                        run.font.name = format_info['font_name']
+                    if format_info['font_size']:
+                        run.font.size = format_info['font_size']
+                    if format_info['bold']:
+                        run.font.bold = format_info['bold']
+                    if format_info['italic']:
+                        run.font.italic = format_info['italic']
+        except Exception as e:
+            logger.debug(f"Erro ao aplicar formatação de parágrafo: {e}")
+            pass  # Continue mesmo se não conseguir aplicar formatação
 
     def validate_template(self):
         try:
