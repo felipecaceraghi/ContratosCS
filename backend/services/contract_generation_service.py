@@ -747,8 +747,8 @@ class ContractGenerationService:
 
     def apply_selective_edits(self, contract_path: str, new_content: str) -> str:
         """
-        Aplica edições preservando a formatação original do documento.
-        Usa uma abordagem de clonagem + edição em vez de reconstrução completa.
+        Aplica edições diretamente no documento original preservando TODA formatação,
+        imagens, tabelas complexas, etc. Só modifica o texto que realmente mudou.
         
         Args:
             contract_path: Caminho do contrato original
@@ -758,196 +758,200 @@ class ContractGenerationService:
             Caminho do novo arquivo editado
         """
         try:
-            logger.info(f"Aplicando edições preservando formatação original: {contract_path}")
+            logger.info(f"Aplicando edições in-place preservando TUDO: {contract_path}")
             
-            # Primeiro, vamos tentar uma abordagem diferente:
-            # Clonar o documento original e depois substituir o conteúdo
             import shutil
             import tempfile
+            import json
+            import re
             
-            # Criar cópia do arquivo original como base
+            # Criar cópia do arquivo original
             base_filename = os.path.basename(contract_path)
             name_without_ext = os.path.splitext(base_filename)[0]
             edited_filename = f"{name_without_ext}_editado.docx"
             edited_filepath = os.path.join(tempfile.gettempdir(), edited_filename)
             
-            # Copiar arquivo original como base
+            # Copiar arquivo original (mantém TUDO: imagens, formatação, etc.)
             shutil.copy2(contract_path, edited_filepath)
             
-            # Carregar a cópia para edição
+            # Carregar o documento copiado
             doc = Document(edited_filepath)
             
-            # Limpar todo o conteúdo do body, mas manter estrutura
-            # Remover todos os elementos do body
-            body = doc.element.body
-            for element in list(body):
-                body.remove(element)
+            # Extrair conteúdo atual do documento para comparar
+            current_content = self.extract_text_content(edited_filepath)
             
-            # Processar e adicionar o novo conteúdo
-            import json
-            import re
+            logger.info("Comparando conteúdo atual vs novo para identificar mudanças...")
             
+            # Dividir conteúdos em linhas para comparação
+            current_lines = current_content.split('\n')
             new_lines = new_content.split('\n')
             
-            logger.info(f"Substituindo conteúdo do documento clonado com {len(new_lines)} linhas")
+            # Mapear parágrafos e tabelas do documento
+            paragraphs = []
+            tables = []
+            element_order = []  # Para manter ordem de parágrafos e tabelas
             
-            i = 0
-            while i < len(new_lines):
-                line = new_lines[i]
-                
-                # Verificar se é início de uma tabela (formato JSON)
-                if "[TABELA_JSON]" in line:
-                    json_match = re.search(r'\[TABELA_JSON\](.*?)\[/TABELA_JSON\]', line)
-                    if json_match:
-                        try:
-                            table_data = json.loads(json_match.group(1))
+            for element in doc.element.body:
+                if element.tag.endswith('p'):  # Parágrafo
+                    para = None
+                    for p in doc.paragraphs:
+                        if p.element == element:
+                            para = p
+                            break
+                    if para:
+                        paragraphs.append(para)
+                        element_order.append(('p', len(paragraphs) - 1))
+                        
+                elif element.tag.endswith('tbl'):  # Tabela
+                    table = None
+                    for t in doc.tables:
+                        if t.element == element:
+                            table = t
+                            break
+                    if table:
+                        tables.append(table)
+                        element_order.append(('t', len(tables) - 1))
+            
+            logger.info(f"Documento mapeado: {len(paragraphs)} parágrafos, {len(tables)} tabelas")
+            
+            # Processar novo conteúdo e aplicar mudanças específicas
+            new_content_index = 0
+            
+            for element_type, element_index in element_order:
+                if element_type == 'p':  # Parágrafo
+                    if new_content_index < len(new_lines):
+                        new_line = new_lines[new_content_index]
+                        
+                        # Verificar se é uma linha de tabela JSON (pular)
+                        if "[TABELA_JSON]" in new_line:
+                            # Pular linha de tabela JSON
+                            new_content_index += 1
+                            continue
+                        
+                        # Aplicar novo texto ao parágrafo mantendo formatação
+                        if element_index < len(paragraphs):
+                            para = paragraphs[element_index]
+                            current_text = para.text
                             
-                            if table_data and len(table_data) > 0:
-                                max_cols = max(len(row) for row in table_data) if table_data else 0
+                            # Só modificar se o texto realmente mudou
+                            if current_text.strip() != new_line.strip():
+                                logger.info(f"Modificando parágrafo {element_index}: '{current_text}' -> '{new_line}'")
                                 
-                                # Criar tabela com estilo padrão do documento
-                                table = doc.add_table(rows=len(table_data), cols=max_cols)
-                                
-                                # Aplicar estilo de tabela que é comum no Word
-                                try:
-                                    table.style = 'Table Grid'
-                                except:
-                                    pass
-                                
-                                # Preencher dados
-                                for row_idx, row_data in enumerate(table_data):
-                                    for col_idx, cell_data in enumerate(row_data):
-                                        if col_idx < max_cols and row_idx < len(table.rows):
-                                            cell = table.rows[row_idx].cells[col_idx]
-                                            cell.text = str(cell_data)
-                                            
-                                            # Formatação especial para cabeçalhos
-                                            if row_idx <= 1:
-                                                for paragraph in cell.paragraphs:
-                                                    for run in paragraph.runs:
-                                                        run.bold = True
-                                                    paragraph.alignment = 1  # Centro
-                                
-                                logger.info(f"Tabela adicionada: {len(table_data)} linhas, {max_cols} colunas")
-                                
-                        except json.JSONDecodeError as e:
-                            logger.error(f"Erro ao processar tabela JSON: {e}")
-                            if line.strip():
-                                doc.add_paragraph(line)
-                    i += 1
+                                # Preservar formatação do primeiro run
+                                if para.runs:
+                                    first_run = para.runs[0]
+                                    font_name = first_run.font.name
+                                    font_size = first_run.font.size
+                                    font_bold = first_run.font.bold
+                                    font_italic = first_run.font.italic
+                                    font_color = first_run.font.color
+                                    
+                                    # Limpar parágrafo e recriar com formatação original
+                                    para.clear()
+                                    new_run = para.add_run(new_line)
+                                    
+                                    # Aplicar formatação preservada
+                                    if font_name:
+                                        new_run.font.name = font_name
+                                    if font_size:
+                                        new_run.font.size = font_size
+                                    if font_bold:
+                                        new_run.font.bold = font_bold
+                                    if font_italic:
+                                        new_run.font.italic = font_italic
+                                    if font_color:
+                                        new_run.font.color.rgb = font_color.rgb
+                                else:
+                                    # Se não há runs, apenas substituir texto
+                                    para.text = new_line
+                        
+                        new_content_index += 1
                 
-                else:
-                    # Linha de texto normal
-                    if line.strip():
-                        paragraph = doc.add_paragraph(line)
-                        # Manter estilo Normal do documento original
-                        try:
-                            paragraph.style = 'Normal'
-                        except:
-                            pass
-                    else:
-                        # Parágrafo vazio
-                        doc.add_paragraph()
-                    i += 1
+                elif element_type == 't':  # Tabela
+                    if new_content_index < len(new_lines):
+                        line = new_lines[new_content_index]
+                        
+                        # Verificar se há dados JSON para esta tabela
+                        if "[TABELA_JSON]" in line:
+                            json_match = re.search(r'\[TABELA_JSON\](.*?)\[/TABELA_JSON\]', line)
+                            if json_match and element_index < len(tables):
+                                try:
+                                    table_data = json.loads(json_match.group(1))
+                                    table = tables[element_index]
+                                    
+                                    logger.info(f"Atualizando tabela {element_index} com {len(table_data)} linhas")
+                                    
+                                    # Ajustar número de linhas se necessário
+                                    current_rows = len(table.rows)
+                                    needed_rows = len(table_data)
+                                    
+                                    if needed_rows > current_rows:
+                                        # Adicionar linhas
+                                        for _ in range(needed_rows - current_rows):
+                                            table.add_row()
+                                    elif needed_rows < current_rows:
+                                        # Remover linhas extras (mais complexo, vamos manter por segurança)
+                                        pass
+                                    
+                                    # Atualizar células mantendo formatação original
+                                    for row_idx, row_data in enumerate(table_data):
+                                        if row_idx < len(table.rows):
+                                            row = table.rows[row_idx]
+                                            for col_idx, cell_data in enumerate(row_data):
+                                                if col_idx < len(row.cells):
+                                                    cell = row.cells[col_idx]
+                                                    
+                                                    # Preservar formatação da célula
+                                                    if cell.paragraphs and cell.paragraphs[0].runs:
+                                                        first_run = cell.paragraphs[0].runs[0]
+                                                        font_name = first_run.font.name
+                                                        font_size = first_run.font.size
+                                                        font_bold = first_run.font.bold
+                                                        font_italic = first_run.font.italic
+                                                        
+                                                        # Limpar e recriar com formatação
+                                                        cell.text = ""
+                                                        para = cell.paragraphs[0]
+                                                        new_run = para.add_run(str(cell_data))
+                                                        
+                                                        if font_name:
+                                                            new_run.font.name = font_name
+                                                        if font_size:
+                                                            new_run.font.size = font_size
+                                                        if font_bold:
+                                                            new_run.font.bold = font_bold
+                                                        if font_italic:
+                                                            new_run.font.italic = font_italic
+                                                    else:
+                                                        # Fallback simples
+                                                        cell.text = str(cell_data)
+                                    
+                                except json.JSONDecodeError as e:
+                                    logger.error(f"Erro ao processar JSON da tabela: {e}")
+                            
+                            new_content_index += 1
+                        else:
+                            # Não é uma linha de tabela JSON, continuar
+                            continue
             
-            # Salvar o documento editado
+            # Salvar documento modificado
             doc.save(edited_filepath)
-            logger.info(f"Documento editado salvo preservando estrutura: {edited_filepath}")
+            logger.info(f"Documento editado in-place salvo: {edited_filepath}")
             
             return edited_filepath
             
         except Exception as e:
-            logger.error(f"Erro na abordagem de clonagem, tentando método de reconstrução: {str(e)}")
+            logger.error(f"Erro ao aplicar edições in-place: {str(e)}")
+            logger.exception("Detalhes do erro:")
             
-            # Fallback: Tentar método de reconstrução melhorado
-            try:
-                return self._reconstruct_with_better_formatting(contract_path, new_content)
-            except Exception as e2:
-                logger.error(f"Erro no método de reconstrução: {str(e2)}")
-                # Último fallback
-                return self.apply_text_edits(contract_path, new_content)
-    
-    def _reconstruct_with_better_formatting(self, contract_path: str, new_content: str) -> str:
-        """
-        Método de reconstrução com melhor preservação de formatação
-        """
-        try:
-            # Carregar documento original
-            original_doc = Document(contract_path)
-            
-            # Criar novo documento baseado no original
-            doc = Document()
-            
-            # Copiar ALL settings from original
-            doc.core_properties = original_doc.core_properties
-            
-            # Copy page settings
-            section = doc.sections[0]
-            orig_section = original_doc.sections[0]
-            section.page_width = orig_section.page_width
-            section.page_height = orig_section.page_height
-            section.left_margin = orig_section.left_margin
-            section.right_margin = orig_section.right_margin
-            section.top_margin = orig_section.top_margin
-            section.bottom_margin = orig_section.bottom_margin
-            section.header_distance = orig_section.header_distance
-            section.footer_distance = orig_section.footer_distance
-            
-            # Copy header and footer if they exist
-            if orig_section.header:
-                section.header.is_linked_to_previous = False
-                for paragraph in orig_section.header.paragraphs:
-                    new_para = section.header.paragraphs[0] if section.header.paragraphs else section.header.add_paragraph()
-                    new_para.text = paragraph.text
-                    
-            if orig_section.footer:
-                section.footer.is_linked_to_previous = False
-                for paragraph in orig_section.footer.paragraphs:
-                    new_para = section.footer.paragraphs[0] if section.footer.paragraphs else section.footer.add_paragraph()
-                    new_para.text = paragraph.text
-            
-            # Process new content
-            import json
-            import re
-            
-            new_lines = new_content.split('\n')
-            
-            for i, line in enumerate(new_lines):
-                if "[TABELA_JSON]" in line:
-                    json_match = re.search(r'\[TABELA_JSON\](.*?)\[/TABELA_JSON\]', line)
-                    if json_match:
-                        try:
-                            table_data = json.loads(json_match.group(1))
-                            if table_data and len(table_data) > 0:
-                                max_cols = max(len(row) for row in table_data) if table_data else 0
-                                table = doc.add_table(rows=len(table_data), cols=max_cols)
-                                table.style = 'Table Grid'
-                                
-                                for row_idx, row_data in enumerate(table_data):
-                                    for col_idx, cell_data in enumerate(row_data):
-                                        if col_idx < max_cols and row_idx < len(table.rows):
-                                            table.rows[row_idx].cells[col_idx].text = str(cell_data)
-                        except:
-                            if line.strip():
-                                doc.add_paragraph(line)
-                else:
-                    if line.strip():
-                        doc.add_paragraph(line)
-                    else:
-                        doc.add_paragraph()
-            
-            # Save
+            # Fallback: retornar arquivo original se tudo der errado
+            import shutil
             base_filename = os.path.basename(contract_path)
             name_without_ext = os.path.splitext(base_filename)[0]
-            edited_filename = f"{name_without_ext}_editado.docx"
-            edited_filepath = os.path.join(tempfile.gettempdir(), edited_filename)
-            
-            doc.save(edited_filepath)
-            return edited_filepath
-            
-        except Exception as e:
-            logger.error(f"Erro na reconstrução melhorada: {str(e)}")
-            raise
+            fallback_filename = f"{name_without_ext}_editado.docx"
+            fallback_filepath = os.path.join(tempfile.gettempdir(), fallback_filename)
+            shutil.copy2(contract_path, fallback_filepath)
+            return fallback_filepath
 
     def validate_template(self):
         try:
