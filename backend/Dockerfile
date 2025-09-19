@@ -8,6 +8,9 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     gcc \
     libreoffice \
+    libxml2-dev \
+    libxslt1-dev \
+    zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copia requirements.txt primeiro para cache de layers

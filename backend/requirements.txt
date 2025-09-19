@@ -1,6 +1,8 @@
 fuzzywuzzy
 # Required for contract_generation_service.py
 python-docx
+# Para manipulação avançada de Word
+lxml>=4.9.0
 # Para conversão DOCX -> PDF (escolha uma das opções abaixo)
 docx2pdf==0.1.8  # Método principal - requer MS Word ou LibreOffice instalado
 # python-docx-replace==0.4.6  # Método alternativo - apenas para extração de texto
