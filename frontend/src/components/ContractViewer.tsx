@@ -150,43 +150,109 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
   
   // Função para atualizar todo o conteúdo editado (tabelas + texto)
   const updateFullEditedContent = () => {
-    let newContent = content;
+    if (!content) return;
     
-    // Primeiro substituir as tabelas
+    // Reconstituir todo o conteúdo com as partes de texto e tabelas editadas
+    let newContent = '';
+    let tempContent = content;
+    let tempIndex = 0;
     let tableIndex = 0;
-    newContent = newContent.replace(/\[TABELA_JSON\](.*?)\[\/TABELA_JSON\]/g, (match, jsonString) => {
-      try {
-        const originalData = JSON.parse(jsonString);
-        const editedData = editableTables[tableIndex] || originalData;
-        const updatedJson = JSON.stringify(editedData);
+    
+    // Recriar o conteúdo a partir das seções
+    const sections: Array<{type: 'text' | 'table', start: number, end: number}> = [];
+    
+    // Encontrar todas as tabelas para determinar as seções de texto
+    let matchIndex = 0;
+    const tableMatches = [...tempContent.matchAll(/\[TABELA_JSON\](.*?)\[\/TABELA_JSON\]/g)];
+    
+    if (tableMatches.length === 0) {
+      // Se não há tabelas, todo o conteúdo é texto
+      sections.push({
+        type: 'text',
+        start: 0,
+        end: tempContent.length
+      });
+    } else {
+      // Processar seções com tabelas
+      let lastEnd = 0;
+      
+      tableMatches.forEach((match, index) => {
+        if (match.index !== undefined) {
+          // Texto antes da tabela
+          if (match.index > lastEnd) {
+            sections.push({
+              type: 'text',
+              start: lastEnd,
+              end: match.index
+            });
+          }
+          
+          // A tabela
+          sections.push({
+            type: 'table',
+            start: match.index,
+            end: match.index + match[0].length
+          });
+          
+          lastEnd = match.index + match[0].length;
+        }
+      });
+      
+      // Texto após a última tabela
+      if (lastEnd < tempContent.length) {
+        sections.push({
+          type: 'text',
+          start: lastEnd,
+          end: tempContent.length
+        });
+      }
+    }
+    
+    // Construir o novo conteúdo com base nas seções
+    let textIndex = 0;
+    tableIndex = 0;
+    
+    sections.forEach((section, idx) => {
+      if (section.type === 'text') {
+        const originalText = tempContent.substring(section.start, section.end);
+        const textKey = textIndex === sections.filter(s => s.type === 'text').length - 1 
+          ? 'text-final' 
+          : `text-${textIndex}`;
+        
+        // Usar o texto editado, ou o original se não houver edições
+        const updatedText = textParts[textKey] !== undefined ? textParts[textKey] : originalText;
+        newContent += updatedText;
+        textIndex++;
+      } else {
+        // Processar tabela
+        const tableMatch = tempContent.substring(section.start, section.end);
+        const jsonMatch = /\[TABELA_JSON\](.*?)\[\/TABELA_JSON\]/g.exec(tableMatch);
+        
+        if (jsonMatch && jsonMatch[1]) {
+          try {
+            const originalData = JSON.parse(jsonMatch[1]) as string[][];
+            const editedData = editableTables[tableIndex] || originalData;
+            const updatedJson = JSON.stringify(editedData);
+            newContent += `[TABELA_JSON]${updatedJson}[/TABELA_JSON]`;
+          } catch (e) {
+            console.error('Erro ao processar tabela:', e);
+            newContent += tableMatch;
+          }
+        } else {
+          newContent += tableMatch;
+        }
+        
         tableIndex++;
-        return `[TABELA_JSON]${updatedJson}[/TABELA_JSON]`;
-      } catch (e) {
-        console.error('Erro ao processar tabela:', e);
-        return match;
       }
     });
     
-    // Depois substituir as partes de texto
-    Object.entries(textParts).forEach(([key, value]) => {
-      const marker = `[TEXT_PART:${key}]`;
-      const endMarker = `[/TEXT_PART:${key}]`;
-      
-      const startIdx = newContent.indexOf(marker);
-      const endIdx = newContent.indexOf(endMarker);
-      
-      if (startIdx !== -1 && endIdx !== -1) {
-        const before = newContent.substring(0, startIdx + marker.length);
-        const after = newContent.substring(endIdx);
-        newContent = before + value + after;
-      }
-    });
-    
+    // Atualizar o estado com o novo conteúdo
     setEditedContent(newContent);
-  };
-  
-  // Função para processar conteúdo editável com tabelas e texto
+    return newContent;
+  };  // Função para processar conteúdo editável com tabelas e texto
   const processEditableContent = (content: string) => {
+    if (!content) return [];
+    
     // Processamento de partes de texto e tabelas
     const parts: React.ReactNode[] = [];
     let currentText = '';
@@ -204,19 +270,17 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
       
       // Adicionar texto antes da tabela
       currentText += content.substring(i, tableStart);
-      if (currentText.trim()) {
+      if (currentText) {
         const textKey = `text-${textPartIndex}`;
         textPartIndex++;
         
-        // Inicializar o texto no estado se ainda não existir
-        if (!textParts[textKey]) {
-          setTextParts(prev => ({...prev, [textKey]: currentText}));
-        }
+        // Usar o texto do estado se existir, ou o texto atual
+        const textToShow = textParts[textKey] !== undefined ? textParts[textKey] : currentText;
         
         parts.push(
           <div key={textKey} className="whitespace-pre-wrap my-4 p-4 bg-white border border-gray-300 rounded-lg">
             <textarea
-              value={textParts[textKey] || currentText}
+              value={textToShow}
               onChange={(e) => {
                 updateTextPart(textKey, e.target.value);
               }}
@@ -225,7 +289,7 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
             />
             {/* Adicionar marcadores invisíveis no conteúdo */}
             <div style={{ display: 'none' }}>
-              [TEXT_PART:{textKey}]{textParts[textKey] || currentText}[/TEXT_PART:{textKey}]
+              [TEXT_PART:{textKey}]{textToShow}[/TEXT_PART:{textKey}]
             </div>
           </div>
         );
@@ -255,18 +319,16 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
     }
     
     // Adicionar texto final
-    if (currentText.trim()) {
+    if (currentText) {
       const textKey = `text-final`;
       
-      // Inicializar o texto no estado se ainda não existir
-      if (!textParts[textKey]) {
-        setTextParts(prev => ({...prev, [textKey]: currentText}));
-      }
+      // Usar o texto do estado se existir, ou o texto atual
+      const textToShow = textParts[textKey] !== undefined ? textParts[textKey] : currentText;
       
       parts.push(
         <div key={textKey} className="whitespace-pre-wrap my-4 p-4 bg-white border border-gray-300 rounded-lg">
           <textarea
-            value={textParts[textKey] || currentText}
+            value={textToShow}
             onChange={(e) => {
               updateTextPart(textKey, e.target.value);
             }}
@@ -275,7 +337,7 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
           />
           {/* Adicionar marcadores invisíveis no conteúdo */}
           <div style={{ display: 'none' }}>
-            [TEXT_PART:{textKey}]{textParts[textKey] || currentText}[/TEXT_PART:{textKey}]
+            [TEXT_PART:{textKey}]{textToShow}[/TEXT_PART:{textKey}]
           </div>
         </div>
       );
@@ -395,9 +457,79 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
       const response = await contractsAPI.getContent(filename);
       
       if (response.success) {
+        // Reset de todos os estados relacionados ao conteúdo
         setContent(response.content);
         setEditedContent(response.content);
         setEditableTables([]); // Reset editable tables
+        setTextParts({}); // Reset text parts
+        
+        // Processar o conteúdo para extrair partes de texto
+        const tempContent = response.content;
+        const tempParts: {[key: string]: string} = {};
+        
+        // Dividir o conteúdo em partes de texto e tabelas
+        const sections: Array<{type: 'text' | 'table', content: string}> = [];
+        
+        // Encontrar todas as tabelas
+        let tempIndex = 0;
+        while (tempIndex < tempContent.length) {
+          const tableStart = tempContent.indexOf('[TABELA_JSON]', tempIndex);
+          
+          if (tableStart === -1) {
+            // Resto do texto
+            if (tempIndex < tempContent.length) {
+              sections.push({
+                type: 'text',
+                content: tempContent.substring(tempIndex)
+              });
+            }
+            break;
+          }
+          
+          // Texto antes da tabela
+          if (tableStart > tempIndex) {
+            sections.push({
+              type: 'text',
+              content: tempContent.substring(tempIndex, tableStart)
+            });
+          }
+          
+          // Encontrar o fim da tabela
+          const tableEnd = tempContent.indexOf('[/TABELA_JSON]', tableStart);
+          
+          if (tableEnd === -1) {
+            // Tabela malformada, tratar como texto
+            sections.push({
+              type: 'text',
+              content: tempContent.substring(tempIndex)
+            });
+            break;
+          }
+          
+          // Adicionar a tabela
+          sections.push({
+            type: 'table',
+            content: tempContent.substring(tableStart, tableEnd + '[/TABELA_JSON]'.length)
+          });
+          
+          tempIndex = tableEnd + '[/TABELA_JSON]'.length;
+        }
+        
+        // Processar as seções e armazenar as partes de texto no estado
+        let textIndex = 0;
+        sections.forEach((section, idx) => {
+          if (section.type === 'text' && section.content.trim()) {
+            const textKey = idx === sections.length - 1 && section.type === 'text'
+              ? 'text-final'
+              : `text-${textIndex}`;
+            
+            tempParts[textKey] = section.content;
+            textIndex++;
+          }
+        });
+        
+        // Atualizar o estado com as partes de texto extraídas
+        setTextParts(tempParts);
       } else {
         alert('Erro ao carregar conteúdo do contrato');
       }
@@ -528,6 +660,7 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
                   onClick={() => {
                     setEditedContent(content);
                     setEditableTables([]);
+                    // Já inicializamos o textParts durante o carregamento
                     setIsEditing(true);
                   }}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -547,7 +680,11 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
                   onClick={() => {
                     setEditedContent(content);
                     setEditableTables([]);
+                    setTextParts({});
                     setIsEditing(false);
+                    
+                    // Recarregar o conteúdo original para garantir
+                    loadContent();
                   }}
                   className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
                 >
@@ -597,16 +734,7 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
               <div className="h-full overflow-y-auto">
                 <div className="bg-gray-50 rounded-lg p-6 min-h-full">
                   <div className="font-serif text-sm leading-relaxed text-gray-800">
-                    {editedContent.includes('[TABELA_JSON]') ? (
-                      processEditableContent(editedContent)
-                    ) : (
-                      <textarea
-                        value={editedContent}
-                        onChange={(e) => setEditedContent(e.target.value)}
-                        className="w-full h-full min-h-[500px] p-4 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white font-mono text-sm"
-                        placeholder="Conteúdo do contrato..."
-                      />
-                    )}
+                    {processEditableContent(editedContent || content)}
                   </div>
                 </div>
               </div>
