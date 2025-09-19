@@ -798,7 +798,7 @@ class ContractGenerationService:
                 if element.tag.endswith('p'):  # Parágrafo
                     para = None
                     for p in doc.paragraphs:
-                        if p.element == element:
+                        if p._element == element:
                             para = p
                             break
                     if para:
@@ -809,7 +809,7 @@ class ContractGenerationService:
                 elif element.tag.endswith('tbl'):  # Tabela
                     table = None
                     for t in doc.tables:
-                        if t.element == element:
+                        if t._element == element:
                             table = t
                             break
                     if table:
@@ -838,7 +838,7 @@ class ContractGenerationService:
                     # Encontrar o parágrafo correspondente
                     para = None
                     for p in doc.paragraphs:
-                        if p.element == element:
+                        if p._element == element:
                             para = p
                             break
                     
