@@ -28,7 +28,8 @@ export default function GroupCompanySearch({
   const [showGroupDropdown, setShowGroupDropdown] = useState(false);
   
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
-  const [_selectedCompanies, _setSelectedCompanies] = useState<Company[]>(selectedCompanies);
+  // O estado local de empresas selecionadas é usado internamente pela função handleGroupSelect
+  const [, _setSelectedCompanies] = useState<Company[]>(selectedCompanies);
   const searchRef = useRef<HTMLDivElement>(null);
 
   // Update internal state when prop changes

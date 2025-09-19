@@ -43,7 +43,7 @@ Texto depois da tabela`;
         const tableData = JSON.parse(jsonString);
         console.log('🎯 TABELA ENCONTRADA E PARSEADA:', tableData.length, 'linhas');
         parts.push({ type: 'table', data: tableData });
-      } catch (_e) {
+      } catch {  // Ignorando o erro
         parts.push({ type: 'text', content: content.substring(tableStart, tableEnd + '[/TABELA_JSON]'.length) });
       }
       

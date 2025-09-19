@@ -33,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           isAuthenticated: true,
           isLoading: false,
         });
-      } catch (error) {
+      } catch {
         // Limpar dados corrompidos
         localStorage.removeItem('access_token');
         localStorage.removeItem('user');
@@ -59,8 +59,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: true,
         isLoading: false,
       });
-    } catch (error: any) {
-      throw new Error(error.response?.data?.error || 'Erro ao fazer login');
+    } catch (error: unknown) {
+      // Extraindo a mensagem de erro de forma segura
+      let errorMessage = 'Erro ao fazer login';
+      if (error && typeof error === 'object' && 'response' in error) {
+        const responseError = error.response as {data?: {error?: string}};
+        if (responseError?.data?.error) {
+          errorMessage = responseError.data.error;
+        }
+      }
+      throw new Error(errorMessage);
     }
   };
 

@@ -3,24 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { contractsAPI } from '@/lib/api';
 import { downloadBothFormats } from '@/lib/document-utils';
-import { toast } from '@/lib/toast';
 
-// Estilos para animação do toast
-const styles = {
-  '@keyframes fadeInDown': {
-    '0%': {
-      opacity: 0,
-      transform: 'translateY(-20px)'
-    },
-    '100%': {
-      opacity: 1,
-      transform: 'translateY(0)'
-    }
-  },
-  '.animate-fade-in-down': {
-    animation: 'fadeInDown 0.5s ease-out forwards'
-  }
-};
+// Keyframes para animação de toast (aplicado diretamente no CSS)
 
 interface ContractViewerProps {
   filename: string;
@@ -43,6 +27,15 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
   const [editableTables, setEditableTables] = useState<(string[][] | null)[]>([]);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  
+  // Função local de toast para substituir a importação
+  const toast = ({title, description, status}: {title: string, description?: string, status: 'success' | 'error'}) => {
+    setToastMessage(`${title}${description ? `: ${description}` : ''}`);
+    setShowToast(true);
+    setTimeout(() => {
+      setShowToast(false);
+    }, 3000);
+  };
 
   // Função para renderizar tabela editável
   const renderEditableTable = (tableData: string[][], tableIndex: number) => {
@@ -194,8 +187,7 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
   
   // Função para processar conteúdo editável com tabelas e texto
   const processEditableContent = (content: string) => {
-    // Adicionar marcadores especiais ao conteúdo para identificar partes de texto
-    let processedContent = content;
+    // Processamento de partes de texto e tabelas
     const parts: React.ReactNode[] = [];
     let currentText = '';
     let i = 0;
@@ -251,7 +243,7 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
       const jsonString = content.substring(jsonStart, tableEnd);
       
       try {
-        const tableData = JSON.parse(jsonString);
+        const tableData = JSON.parse(jsonString) as string[][];
         parts.push(renderEditableTable(tableData, tableIndex));
         tableIndex++;
       } catch (e) {
@@ -325,7 +317,7 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
       const jsonString = content.substring(jsonStart, tableEnd);
       
       try {
-        const tableData = JSON.parse(jsonString);
+        const tableData = JSON.parse(jsonString) as string[][];
         parts.push({ type: 'table', data: tableData });
       } catch (e) {
         console.error('Erro ao processar JSON:', e);
