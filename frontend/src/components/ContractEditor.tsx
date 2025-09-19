@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { contractsAPI } from '@/lib/api';
+import { downloadBothFormats } from '@/lib/document-utils';
 
 // Estilos para animação do toast
 const styles = {
@@ -117,54 +118,17 @@ const ContractEditor: React.FC<ContractEditorProps> = ({
         setToastMessage('Iniciando downloads (DOCX e PDF)...');
         setShowToast(true);
         
-        // Download do DOCX
+        // Usar a nova utilidade para download de ambos os formatos
         try {
-          const docxResponse = await contractsAPI.download(response.filename);
+          await downloadBothFormats(response.filename, companyName);
           
-          if (docxResponse.data) {
-            const docxBlob = new Blob([docxResponse.data], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
-            const docxUrl = window.URL.createObjectURL(docxBlob);
-            const docxLink = document.createElement('a');
-            docxLink.href = docxUrl;
-            docxLink.download = `contrato_${companyName.replace(/[^a-zA-Z0-9]/g, '_')}.docx`;
-            document.body.appendChild(docxLink);
-            docxLink.click();
-            docxLink.remove();
-            window.URL.revokeObjectURL(docxUrl);
-            
-            setToastMessage('DOCX baixado com sucesso! Preparando PDF...');
-          }
+          // Atualizar mensagem do toast
+          setToastMessage('DOCX baixado e PDF aberto em nova aba!');
           
-          // Download do PDF logo em seguida
-          try {
-            const pdfResponse = await contractsAPI.downloadAsPdf(response.filename);
-            
-            if (pdfResponse.data) {
-              const pdfBlob = new Blob([pdfResponse.data], { type: 'application/pdf' });
-              const pdfUrl = window.URL.createObjectURL(pdfBlob);
-              const pdfLink = document.createElement('a');
-              pdfLink.href = pdfUrl;
-              pdfLink.download = `contrato_${companyName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
-              setTimeout(() => {
-                document.body.appendChild(pdfLink);
-                pdfLink.click();
-                pdfLink.remove();
-                window.URL.revokeObjectURL(pdfUrl);
-                setToastMessage('DOCX e PDF baixados com sucesso!');
-                
-                // Esconder toast após alguns segundos
-                setTimeout(() => {
-                  setShowToast(false);
-                }, 3000);
-              }, 1000); // Pequeno delay para não bloquear o download do DOCX
-            }
-          } catch (pdfError) {
-            console.error('Erro ao fazer download do PDF:', pdfError);
-            setToastMessage('DOCX baixado, mas houve um erro ao gerar o PDF.');
-            setTimeout(() => {
-              setShowToast(false);
-            }, 3000);
-          }
+          // Esconder toast após alguns segundos
+          setTimeout(() => {
+            setShowToast(false);
+          }, 3000);
         } catch (downloadError) {
           console.error('Erro ao fazer download dos arquivos:', downloadError);
           setToastMessage('Erro ao fazer download dos arquivos.');

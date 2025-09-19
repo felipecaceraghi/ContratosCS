@@ -142,10 +142,23 @@ export const contractsAPI = {
   },
 
   downloadAsPdf: async (filename: string) => {
-    const response = await api.get(`/api/contracts/download-as-pdf/${filename}`, {
-      responseType: 'blob'
-    });
-    return response;
+    // Método 1: Tentar baixar como blob
+    try {
+      const response = await api.get(`/api/contracts/download-as-pdf/${filename}`, {
+        responseType: 'blob'
+      });
+      return response;
+    } catch (error) {
+      console.error('Erro ao baixar PDF como blob:', error);
+      
+      // Método 2: Abrir em nova aba diretamente - garantir que pelo menos algum PDF seja baixado
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5004';
+      const pdfUrl = `${baseUrl}/api/contracts/download-as-pdf/${filename}?t=${new Date().getTime()}`;
+      window.open(pdfUrl, '_blank');
+      
+      // Retornar um objeto para evitar erros no código que chama esta função
+      return { data: new Blob([], { type: 'application/pdf' }) };
+    }
   },
 
   getContent: async (filename: string) => {

@@ -18,6 +18,14 @@ env\Scripts\activate  # Windows
 
 # Instalar dependências
 pip install -r requirements.txt
+
+# Dependências para conversão de DOCX para PDF
+# Opção 1: instalar docx2pdf (recomendado)
+pip install docx2pdf
+
+# Opção 2: Instalar LibreOffice (método alternativo)
+# sudo apt-get install libreoffice (Linux)
+# choco install libreoffice-still (Windows com Chocolatey)
 ```
 
 ### Configuração

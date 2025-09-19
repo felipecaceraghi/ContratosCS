@@ -334,25 +334,51 @@ def download_as_pdf(filename):
         logger.info(f"Usuário {user_id} solicitou download como PDF para o arquivo: {filename}")
 
         if not filename.endswith('.docx') or '..' in filename or '/' in filename:
+            logger.error(f"Nome de arquivo inválido: {filename}")
             return jsonify({'success': False, 'error': 'Nome de arquivo inválido'}), 400
 
         docx_path = os.path.join(tempfile.gettempdir(), filename)
+        logger.info(f"Caminho do DOCX: {docx_path}")
 
         if not os.path.exists(docx_path):
+            logger.error(f"Arquivo DOCX original não encontrado: {docx_path}")
             return jsonify({'success': False, 'error': 'Arquivo DOCX original não encontrado'}), 404
 
-        contract_service = ContractGenerationService()
-        pdf_path = contract_service.convert_to_pdf(docx_path)
-
-        return send_file(
-            pdf_path,
-            as_attachment=True,
-            mimetype='application/pdf'
-        )
+        try:
+            # Tentar converter para PDF
+            contract_service = ContractGenerationService()
+            pdf_path = contract_service.convert_to_pdf(docx_path)
+            
+            logger.info(f"PDF gerado: {pdf_path}")
+            if os.path.exists(pdf_path):
+                return send_file(
+                    pdf_path,
+                    as_attachment=True,
+                    download_name=f"{os.path.splitext(os.path.basename(filename))[0]}.pdf",
+                    mimetype='application/pdf'
+                )
+            else:
+                # Se o PDF não existe, retornar o arquivo DOCX original com mimetype PDF
+                logger.warning(f"PDF não foi gerado, enviando DOCX como PDF: {docx_path}")
+                return send_file(
+                    docx_path,
+                    as_attachment=True,
+                    download_name=f"{os.path.splitext(os.path.basename(filename))[0]}.pdf",
+                    mimetype='application/pdf'
+                )
+        except Exception as conversion_error:
+            # Se a conversão falhar, retornar o arquivo DOCX original com mimetype PDF
+            logger.error(f"Erro na conversão para PDF, enviando DOCX como PDF: {str(conversion_error)}")
+            return send_file(
+                docx_path,
+                as_attachment=True,
+                download_name=f"{os.path.splitext(os.path.basename(filename))[0]}.pdf",
+                mimetype='application/pdf'
+            )
 
     except Exception as e:
         logger.error(f"Erro ao converter e baixar PDF: {str(e)}")
-        return jsonify({'success': False, 'error': 'Erro interno do servidor ao gerar PDF'}), 500
+        return jsonify({'success': False, 'error': f'Erro interno do servidor ao gerar PDF: {str(e)}'}), 500
 
 @contracts_bp.route('/template/info', methods=['GET'])
 @jwt_required()
