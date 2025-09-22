@@ -1,5 +1,8 @@
 services:
+
+  
   app:
+    container_name: ContratosCs
     build: .
     ports:
       - "5004:5004"  # Mapear porta host 5004 para container 5000
