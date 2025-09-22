@@ -276,7 +276,7 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
               onChange={(e) => {
                 updateTextPart(textKey, e.target.value);
               }}
-              className="w-full min-h-[100px] border-none resize-none focus:outline-none bg-transparent focus:bg-yellow-50"
+              className="w-full min-h-[200px] border-none resize-none focus:outline-none bg-transparent focus:bg-yellow-50"
               placeholder="Editar texto..."
             />
             {/* Adicionar marcadores invisíveis no conteúdo */}
@@ -324,7 +324,7 @@ const ContractViewer: React.FC<ContractViewerProps> = ({
             onChange={(e) => {
               updateTextPart(textKey, e.target.value);
             }}
-            className="w-full min-h-[100px] border-none resize-none focus:outline-none bg-transparent focus:bg-yellow-50"
+            className="w-full min-h-[200px] border-none resize-none focus:outline-none bg-transparent focus:bg-yellow-50"
             placeholder="Editar texto..."
           />
           {/* Adicionar marcadores invisíveis no conteúdo */}
