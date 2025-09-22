@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import LoadingSpinner from '@/components/LoadingSpinner';
-import Logo from '@/components/Logo';
+import Image from 'next/image';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -32,83 +32,65 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4 relative overflow-hidden login-page">
-      {/* Background Animation */}
-      <div className="absolute inset-0 opacity-30">
-        <div className="absolute top-0 -left-4 w-72 h-72 bg-purple-300 rounded-full mix-blend-multiply filter blur-xl animate-blob"></div>
-        <div className="absolute top-0 -right-4 w-72 h-72 bg-yellow-300 rounded-full mix-blend-multiply filter blur-xl animate-blob animation-delay-2000"></div>
-        <div className="absolute -bottom-8 left-20 w-72 h-72 bg-pink-300 rounded-full mix-blend-multiply filter blur-xl animate-blob animation-delay-4000"></div>
-      </div>
-
-      {/* Glass morphism container */}
-      <div className="relative z-10 w-full max-w-md">
-        {/* Main Card */}
-        <div className="backdrop-blur-xl bg-white/10 border border-white/20 rounded-3xl shadow-2xl p-8 space-y-8">
-          
-          {/* Header */}
-          <div className="text-center space-y-4">
-            <div className="flex justify-center">
-              <div className="relative group">
-                <div className="absolute -inset-4 bg-gradient-to-r from-purple-400 to-pink-400 rounded-full blur opacity-75 group-hover:opacity-100 transition duration-1000 group-hover:duration-200 animate-tilt"></div>
-                <div className="relative">
-                  <Logo size="lg" className="shadow-2xl transform group-hover:scale-110 transition-all duration-300" />
-                </div>
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-white via-purple-100 to-white bg-clip-text text-transparent">
-                ContratosCS
-              </h1>
-              <p className="text-white/70 text-sm font-medium">
-                Sistema Inteligente de Contratos
-              </p>
-            </div>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        
+        {/* Logo */}
+        <div className="text-center mb-8">
+          <div className="flex justify-center mb-6">
+            <Image
+              src="/logo.png"
+              alt="ContratosCS"
+              width={300}
+              height={37}
+              className="h-12 w-auto"
+              priority
+            />
           </div>
+          <h2 className="text-2xl font-semibold text-gray-900 mb-2">
+            Sistema de Contratos
+          </h2>
+          <p className="text-gray-600 text-sm">
+            Acesse sua conta para continuar
+          </p>
+        </div>
 
-          {/* Login Form */}
+        {/* Login Form */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
+            
             {/* Email Field */}
-            <div className="space-y-2">
-              <label htmlFor="email" className="text-white/90 text-sm font-semibold block">
-                Email
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                Email corporativo
               </label>
-              <div className="relative group">
-                <div className="absolute inset-0 bg-gradient-to-r from-purple-400/50 to-pink-400/50 rounded-xl blur opacity-0 group-hover:opacity-100 transition-all duration-300"></div>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  className="relative w-full px-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-400/50 focus:border-transparent transition-all duration-300 hover:bg-white/15"
-                  placeholder="seu.email@empresa.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={isLoading}
-                />
-                <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-                  <svg className="h-5 w-5 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" />
-                  </svg>
-                </div>
-              </div>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autoComplete="email"
+                required
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200"
+                placeholder="usuario@empresa.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={isLoading}
+              />
             </div>
 
             {/* Password Field */}
-            <div className="space-y-2">
-              <label htmlFor="password" className="text-white/90 text-sm font-semibold block">
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
                 Senha
               </label>
-              <div className="relative group">
-                <div className="absolute inset-0 bg-gradient-to-r from-purple-400/50 to-pink-400/50 rounded-xl blur opacity-0 group-hover:opacity-100 transition-all duration-300"></div>
+              <div className="relative">
                 <input
                   id="password"
                   name="password"
                   type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
                   required
-                  className="relative w-full px-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-400/50 focus:border-transparent transition-all duration-300 hover:bg-white/15 pr-12"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors duration-200 pr-10"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -116,7 +98,7 @@ export default function LoginPage() {
                 />
                 <button
                   type="button"
-                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-white/40 hover:text-white/70 transition-colors duration-200"
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600"
                   onClick={() => setShowPassword(!showPassword)}
                 >
                   {showPassword ? (
@@ -135,17 +117,12 @@ export default function LoginPage() {
 
             {/* Error Message */}
             {error && (
-              <div className="relative">
-                <div className="absolute inset-0 bg-red-500/20 rounded-xl blur"></div>
-                <div className="relative bg-red-500/10 backdrop-blur-sm border border-red-400/30 rounded-xl p-4">
-                  <div className="flex items-center space-x-3">
-                    <div className="flex-shrink-0">
-                      <svg className="h-5 w-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    <span className="text-red-200 text-sm font-medium">{error}</span>
-                  </div>
+              <div className="bg-red-50 border border-red-200 rounded-md p-3">
+                <div className="flex">
+                  <svg className="h-5 w-5 text-red-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-sm text-red-700">{error}</span>
                 </div>
               </div>
             )}
@@ -154,66 +131,24 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isLoading}
-              className="relative w-full group"
+              className="w-full flex justify-center items-center py-2.5 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
             >
-              <div className="absolute -inset-1 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl blur opacity-75 group-hover:opacity-100 transition duration-1000 group-hover:duration-200"></div>
-              <div className="relative flex justify-center items-center py-4 px-6 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl text-white font-bold shadow-lg transform group-hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
-                {isLoading ? (
-                  <>
-                    <LoadingSpinner size="sm" className="mr-3" />
-                    <span className="bg-gradient-to-r from-white to-purple-100 bg-clip-text text-transparent">
-                      Entrando...
-                    </span>
-                  </>
-                ) : (
-                  <span className="bg-gradient-to-r from-white to-purple-100 bg-clip-text text-transparent">
-                    Entrar no Sistema
-                  </span>
-                )}
-              </div>
+              {isLoading ? (
+                <>
+                  <LoadingSpinner size="sm" className="mr-2" />
+                  Entrando...
+                </>
+              ) : (
+                'Entrar'
+              )}
             </button>
           </form>
-
-          {/* Divider */}
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-white/20"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-4 bg-transparent text-white/60">Sistema Profissional</span>
-            </div>
-          </div>
-
-          {/* Features */}
-          <div className="grid grid-cols-2 gap-4 text-center">
-            <div className="group cursor-default">
-              <div className="flex flex-col items-center space-y-2 p-3 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 hover:bg-white/10 transition-all duration-300">
-                <div className="p-2 bg-gradient-to-r from-purple-400/20 to-pink-400/20 rounded-lg group-hover:scale-110 transition-transform duration-300">
-                  <svg className="h-5 w-5 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                  </svg>
-                </div>
-                <span className="text-white/80 text-xs font-medium">Seguro</span>
-              </div>
-            </div>
-            
-            <div className="group cursor-default">
-              <div className="flex flex-col items-center space-y-2 p-3 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 hover:bg-white/10 transition-all duration-300">
-                <div className="p-2 bg-gradient-to-r from-purple-400/20 to-pink-400/20 rounded-lg group-hover:scale-110 transition-transform duration-300">
-                  <svg className="h-5 w-5 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                </div>
-                <span className="text-white/80 text-xs font-medium">Rápido</span>
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Footer */}
         <div className="mt-8 text-center">
-          <p className="text-white/40 text-xs">
-            © 2025 ContratosCS • Sistema Inteligente de Automação
+          <p className="text-xs text-gray-500">
+            © 2025 ContratosCS
           </p>
         </div>
       </div>
