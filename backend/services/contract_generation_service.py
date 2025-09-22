@@ -747,7 +747,7 @@ class ContractGenerationService:
 
     def _apply_xml_edits(self, contract_path: str, new_content: str, output_path: str) -> str:
         """
-        Aplica edições usando manipulação XML (método anterior que funcionou)
+        Aplica edições usando manipulação XML AVANÇADA com preservação total de formatação
         """
         try:
             import zipfile
@@ -756,6 +756,7 @@ class ContractGenerationService:
             import json
             import re
             import shutil
+            from copy import deepcopy
             
             # Word é um ZIP com XML dentro - vamos manipular diretamente
             temp_dir = tempfile.mkdtemp()
@@ -782,7 +783,9 @@ class ContractGenerationService:
                     'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
                     'wp': 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing',
                     'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
-                    'pic': 'http://schemas.openxmlformats.org/drawingml/2006/picture'
+                    'pic': 'http://schemas.openxmlformats.org/drawingml/2006/picture',
+                    'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+                    'mc': 'http://schemas.openxmlformats.org/markup-compatibility/2006'
                 }
                 
                 logger.info("🔍 XML parseado com sucesso")
@@ -792,101 +795,88 @@ class ContractGenerationService:
                 if body is None:
                     raise Exception("Body não encontrado no XML")
                 
-                # Coletar TODOS os elementos formatados (parágrafos e tabelas)
-                formatted_elements = []
+                # NOVA ESTRATÉGIA: Mapear conteúdo original para novos valores
+                original_content = self.extract_text_content(contract_path)
+                original_lines = [line.strip() for line in original_content.split('\n') if line.strip()]
+                new_lines = [line.strip() for line in new_content.split('\n') if line.strip()]
                 
-                for elem in body:
-                    if elem.tag.endswith('}p'):  # Parágrafo
-                        formatted_elements.append(('paragraph', elem))
-                    elif elem.tag.endswith('}tbl'):  # Tabela
-                        formatted_elements.append(('table', elem))
+                logger.info(f"📋 Mapeando {len(original_lines)} → {len(new_lines)} linhas")
                 
-                logger.info(f"📋 Coletados {len(formatted_elements)} elementos formatados")
+                # Separar linhas normais de tabelas JSON
+                normal_mapping = {}
+                table_mapping = {}
+                changes_count = 0
                 
-                # Processar novo conteúdo
-                new_lines = new_content.split('\n')
-                logger.info(f"📝 Processando {len(new_lines)} linhas do novo conteúdo")
-                
-                # Limpar body mantendo apenas sectPr (configurações de seção)
-                sect_pr = body.find('.//w:sectPr', ns)
-                body.clear()
-                if sect_pr is not None:
-                    body.append(sect_pr)
-                
-                # Aplicar novo conteúdo usando elementos formatados como template
-                para_templates = [elem[1] for elem in formatted_elements if elem[0] == 'paragraph']
-                table_templates = [elem[1] for elem in formatted_elements if elem[0] == 'table']
-                
-                para_template_index = 0
-                table_template_index = 0
-                
-                i = 0
-                while i < len(new_lines):
-                    line = new_lines[i]
-                    
-                    if "[TABELA_JSON]" in line:
-                        # Processar tabela
-                        json_match = re.search(r'\[TABELA_JSON\](.*?)\[/TABELA_JSON\]', line)
-                        if json_match:
-                            try:
-                                table_data = json.loads(json_match.group(1))
-                                
-                                if table_data and table_template_index < len(table_templates):
-                                    # Usar template de tabela disponível
-                                    table_template = table_templates[table_template_index]
-                                    table_template_index += 1
-                                    
-                                    # Clonar template da tabela
-                                    new_table = etree.fromstring(etree.tostring(table_template))
-                                    
-                                    # Aplicar dados na tabela (código anterior...)
-                                    rows = new_table.findall('.//w:tr', ns)
-                                    
-                                    # Aplicar novos dados mantendo formatação
-                                    for row_idx, row_data in enumerate(table_data):
-                                        if row_idx < len(rows):
-                                            cells = rows[row_idx].findall('.//w:tc', ns)
-                                            for col_idx, cell_data in enumerate(row_data):
-                                                if col_idx < len(cells):
-                                                    text_elements = cells[col_idx].findall('.//w:t', ns)
-                                                    if text_elements:
-                                                        for t_elem in text_elements[1:]:
-                                                            t_elem.text = ""
-                                                        text_elements[0].text = str(cell_data)
-                                    
-                                    body.insert(-1 if sect_pr is not None else len(body), new_table)
-                                    logger.info(f"📊 Tabela XML aplicada: {len(table_data)} linhas")
-                                
-                            except Exception as e:
-                                logger.error(f"Erro ao processar tabela: {e}")
-                        
-                        i += 1
-                    
+                for i, orig_line in enumerate(original_lines):
+                    if i < len(new_lines):
+                        if orig_line != new_lines[i]:
+                            if "[TABELA_JSON]" in orig_line:
+                                table_mapping[orig_line] = new_lines[i]
+                                logger.info(f"📊 Mapeamento tabela {len(table_mapping)}: '{orig_line[:50]}...' → '{new_lines[i][:50]}...'")
+                            else:
+                                normal_mapping[orig_line] = new_lines[i]
+                                logger.info(f"📝 Mapeamento texto {len(normal_mapping)}: '{orig_line[:30]}...' → '{new_lines[i][:30]}...'")
+                            changes_count += 1
                     else:
-                        # Processar parágrafo normal
-                        if para_template_index < len(para_templates):
-                            para_template = para_templates[para_template_index]
-                            para_template_index += 1
-                            
-                            # Clonar template do parágrafo
-                            new_para = etree.fromstring(etree.tostring(para_template))
-                            
-                            # Aplicar novo texto mantendo formatação
-                            text_elements = new_para.findall('.//w:t', ns)
-                            if text_elements:
-                                for t_elem in text_elements[1:]:
-                                    t_elem.text = ""
-                                text_elements[0].text = line if line.strip() else ""
-                            
-                            body.insert(-1 if sect_pr is not None else len(body), new_para)
+                        if "[TABELA_JSON]" in orig_line:
+                            table_mapping[orig_line] = ""  # Tabela removida
                         else:
-                            # Criar parágrafo básico se não há mais templates
-                            if line.strip():
-                                para_xml = f'<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:r><w:t>{line}</w:t></w:r></w:p>'
-                                new_para = etree.fromstring(para_xml)
-                                body.insert(-1 if sect_pr is not None else len(body), new_para)
-                        
-                        i += 1
+                            normal_mapping[orig_line] = ""  # Linha removida
+                        changes_count += 1
+                
+                logger.info(f"📊 Total: {len(normal_mapping)} textos + {len(table_mapping)} tabelas = {changes_count} mudanças")
+                
+                # Adicionar linhas novas que não existiam
+                extra_lines = []
+                if len(new_lines) > len(original_lines):
+                    extra_lines = new_lines[len(original_lines):]
+                    logger.info(f"➕ {len(extra_lines)} linhas adicionais detectadas")
+                
+                # Processar textos normais
+                if normal_mapping:
+                    logger.info(f"� Processando {len(normal_mapping)} mudanças de texto...")
+                    self._update_xml_content_preserving_format(body, normal_mapping, ns)
+                
+                # Processar tabelas JSON separadamente
+                if table_mapping:
+                    logger.info(f"📊 Processando {len(table_mapping)} mudanças de tabela...")
+                    self._update_xml_tables(body, table_mapping, ns)
+                
+                # Adicionar linhas extras se houver
+                if extra_lines:
+                    sect_pr = body.find('.//w:sectPr', ns)
+                    
+                    for extra_line in extra_lines:
+                        if extra_line.strip():
+                            # Criar parágrafo simples para linha extra
+                            para_xml = f'''<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                                <w:r>
+                                    <w:t>{extra_line}</w:t>
+                                </w:r>
+                            </w:p>'''
+                            new_para = etree.fromstring(para_xml)
+                            if sect_pr is not None:
+                                body.insert(-1, new_para)
+                            else:
+                                body.append(new_para)
+                    logger.info(f"➕ {len(extra_lines)} linhas extras adicionadas")
+                
+                # Verificar quantos mapeamentos sobraram
+                remaining_normal = len(normal_mapping) if normal_mapping else 0
+                remaining_tables = len(table_mapping) if table_mapping else 0
+                
+                if remaining_normal > 0:
+                    logger.warning(f"⚠️ {remaining_normal} mapeamentos de texto não aplicados:")
+                    for i, (orig, new) in enumerate(list(normal_mapping.items())[:3]):
+                        logger.warning(f"  Texto {i+1}. '{orig[:40]}...' → '{new[:40]}...'")
+                
+                if remaining_tables > 0:
+                    logger.warning(f"⚠️ {remaining_tables} mapeamentos de tabela não aplicados:")
+                    for i, (orig, new) in enumerate(list(table_mapping.items())[:3]):
+                        logger.warning(f"  Tabela {i+1}. '{orig[:40]}...' → '{new[:40]}...'")
+                
+                if remaining_normal == 0 and remaining_tables == 0:
+                    logger.info("✅ Todos os mapeamentos foram aplicados com sucesso")
                 
                 # Salvar XML modificado
                 modified_xml = etree.tostring(root, encoding='utf-8', xml_declaration=True, pretty_print=True)
@@ -901,7 +891,7 @@ class ContractGenerationService:
                             arc_name = os.path.relpath(file_path, temp_dir)
                             zip_ref.write(file_path, arc_name)
                 
-                logger.info(f"🎉 EDIÇÕES XML APLICADAS: {output_path}")
+                logger.info(f"🎉 EDIÇÕES XML AVANÇADAS APLICADAS: {output_path}")
                 return output_path
                 
             finally:
@@ -909,8 +899,142 @@ class ContractGenerationService:
                 shutil.rmtree(temp_dir, ignore_errors=True)
                 
         except Exception as e:
-            logger.error(f"❌ ERRO na aplicação XML: {str(e)}")
+            logger.error(f"❌ ERRO na aplicação XML avançada: {str(e)}")
             raise
+
+    def _update_xml_tables(self, body, table_mapping, ns):
+        """
+        Atualiza especificamente tabelas JSON no XML
+        """
+        try:
+            import json
+            import re
+            
+            # Encontrar todas as tabelas no documento
+            tables = body.findall('.//w:tbl', ns)
+            logger.info(f"📊 Encontradas {len(tables)} tabelas no documento")
+            
+            # Para cada mapeamento de tabela
+            for orig_table_json, new_table_json in table_mapping.items():
+                # Extrair dados JSON da string original e nova
+                orig_match = re.search(r'\[TABELA_JSON\](.*?)\[/TABELA_JSON\]', orig_table_json)
+                new_match = re.search(r'\[TABELA_JSON\](.*?)\[/TABELA_JSON\]', new_table_json)
+                
+                if orig_match and new_match:
+                    try:
+                        orig_data = json.loads(orig_match.group(1))
+                        new_data = json.loads(new_match.group(1))
+                        
+                        logger.info(f"📊 Atualizando tabela: {len(orig_data)}x{len(orig_data[0]) if orig_data else 0} → {len(new_data)}x{len(new_data[0]) if new_data else 0}")
+                        
+                        # Procurar tabela correspondente no XML
+                        for table in tables:
+                            rows = table.findall('.//w:tr', ns)
+                            
+                            # Verificar se a tabela corresponde aos dados originais
+                            if len(rows) >= len(orig_data):
+                                matches = 0
+                                for row_idx, orig_row in enumerate(orig_data):
+                                    if row_idx < len(rows):
+                                        cells = rows[row_idx].findall('.//w:tc', ns)
+                                        if len(cells) >= len(orig_row):
+                                            for col_idx, orig_cell in enumerate(orig_row):
+                                                if col_idx < len(cells):
+                                                    cell_text = ''.join(t.text or '' for t in cells[col_idx].findall('.//w:t', ns))
+                                                    if str(orig_cell).strip() == cell_text.strip():
+                                                        matches += 1
+                                
+                                # Se a maioria das células corresponde, essa é nossa tabela
+                                total_cells = sum(len(row) for row in orig_data)
+                                if matches >= total_cells * 0.7:  # 70% de correspondência
+                                    logger.info(f"✅ Tabela encontrada! {matches}/{total_cells} células correspondem")
+                                    
+                                    # Atualizar com novos dados
+                                    for row_idx, new_row in enumerate(new_data):
+                                        if row_idx < len(rows):
+                                            cells = rows[row_idx].findall('.//w:tc', ns)
+                                            for col_idx, new_cell in enumerate(new_row):
+                                                if col_idx < len(cells):
+                                                    # Atualizar texto da célula preservando formatação
+                                                    text_elements = cells[col_idx].findall('.//w:t', ns)
+                                                    if text_elements:
+                                                        # Limpar elementos extras
+                                                        for t_elem in text_elements[1:]:
+                                                            t_elem.text = ""
+                                                        # Aplicar novo texto
+                                                        text_elements[0].text = str(new_cell)
+                                    
+                                    logger.info(f"🎉 Tabela atualizada com sucesso!")
+                                    break
+                        
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Erro ao processar JSON da tabela: {e}")
+                
+        except Exception as e:
+            logger.error(f"Erro ao atualizar tabelas XML: {e}")
+
+    def _update_xml_content_preserving_format(self, element, content_mapping, ns):
+        """
+        Atualiza conteúdo XML preservando totalmente a formatação original
+        """
+        try:
+            # Processar parágrafos
+            if element.tag.endswith('}p'):
+                # Extrair texto atual do parágrafo
+                current_text = ''.join(t.text or '' for t in element.findall('.//w:t', ns))
+                current_text = current_text.strip()
+                
+                # DEBUG: Log do texto encontrado
+                if current_text and len(current_text) > 10:  # Apenas textos significativos
+                    logger.debug(f"🔍 Processando parágrafo: '{current_text[:50]}...'")
+                
+                # Verificar se há mapeamento EXATO para este texto
+                if current_text in content_mapping:
+                    new_text = content_mapping[current_text]
+                    if new_text != current_text:
+                        # Preservar TODA a formatação, apenas trocar o texto
+                        text_elements = element.findall('.//w:t', ns)
+                        if text_elements:
+                            # Limpar todos os elementos de texto exceto o primeiro
+                            for t_elem in text_elements[1:]:
+                                t_elem.text = ""
+                            # Colocar todo o novo texto no primeiro elemento
+                            text_elements[0].text = new_text
+                            logger.info(f"✅ Texto atualizado: '{current_text[:30]}...' → '{new_text[:30]}...'")
+                    # Remover do mapeamento para não reutilizar
+                    del content_mapping[current_text]
+                else:
+                    # Se não encontrar correspondência exata, tentar busca parcial
+                    for original_text, new_text in list(content_mapping.items()):
+                        # Ignorar tabelas JSON
+                        if "[TABELA_JSON]" in original_text or "[TABELA_JSON]" in current_text:
+                            continue
+                            
+                        # Busca parcial: se o texto original contém o texto atual ou vice-versa
+                        if (current_text in original_text or original_text in current_text) and len(current_text) > 5:
+                            text_elements = element.findall('.//w:t', ns)
+                            if text_elements:
+                                # Substituir texto
+                                for t_elem in text_elements[1:]:
+                                    t_elem.text = ""
+                                text_elements[0].text = new_text
+                                logger.info(f"🔄 Texto atualizado (parcial): '{current_text[:30]}...' → '{new_text[:30]}...'")
+                                del content_mapping[original_text]
+                                break
+            
+            # Processar tabelas
+            elif element.tag.endswith('}tbl'):
+                # Para tabelas, processar cada célula individualmente
+                cells = element.findall('.//w:tc', ns)
+                for cell in cells:
+                    self._update_xml_content_preserving_format(cell, content_mapping, ns)
+            
+            # Recursivamente processar elementos filhos
+            for child in element:
+                self._update_xml_content_preserving_format(child, content_mapping, ns)
+                
+        except Exception as e:
+            logger.error(f"Erro ao atualizar elemento XML: {e}")
 
     def apply_selective_edits(self, contract_path: str, new_content: str) -> str:
         """
@@ -950,9 +1074,20 @@ class ContractGenerationService:
             current_lines = [line.strip() for line in current_content.split('\n')]
             new_lines = [line.strip() for line in new_content.split('\n')]
             
+            # Log para debug
+            logger.info(f"🔍 DEBUG COMPARAÇÃO:")
+            logger.info(f"  - Linhas originais: {len(current_lines)}")
+            logger.info(f"  - Linhas novas: {len(new_lines)}")
+            logger.info(f"  - Primeiras 3 linhas originais: {current_lines[:3]}")
+            logger.info(f"  - Primeiras 3 linhas novas: {new_lines[:3]}")
+            
             # Remover linhas vazias para comparação
             current_clean = [line for line in current_lines if line]
             new_clean = [line for line in new_lines if line]
+            
+            logger.info(f"🔍 DEBUG PÓS-LIMPEZA:")
+            logger.info(f"  - Linhas originais limpas: {len(current_clean)}")
+            logger.info(f"  - Linhas novas limpas: {len(new_clean)}")
             
             # Verificar se houve mudanças significativas
             content_changed = False
@@ -962,6 +1097,7 @@ class ContractGenerationService:
                 logger.info(f"🔄 Mudança detectada: número de linhas {len(current_clean)} → {len(new_clean)}")
             else:
                 # Comparar linha por linha (ignorando formatações JSON de tabela)
+                changes_found = []
                 for i, (current_line, new_line) in enumerate(zip(current_clean, new_clean)):
                     # Pular comparação de linhas JSON de tabela (são geradas automaticamente)
                     if "[TABELA_JSON]" in current_line or "[TABELA_JSON]" in new_line:
@@ -969,15 +1105,33 @@ class ContractGenerationService:
                     
                     if current_line != new_line:
                         content_changed = True
-                        logger.info(f"🔄 Mudança detectada na linha {i}:")
-                        logger.info(f"  ANTES: '{current_line[:100]}...'")
-                        logger.info(f"  DEPOIS: '{new_line[:100]}...'")
-                        break
+                        changes_found.append({
+                            'line': i,
+                            'before': current_line[:100],
+                            'after': new_line[:100]
+                        })
+                        if len(changes_found) <= 5:  # Log apenas as primeiras 5 diferenças
+                            logger.info(f"🔄 Mudança detectada na linha {i}:")
+                            logger.info(f"  ANTES: '{current_line[:100]}...'")
+                            logger.info(f"  DEPOIS: '{new_line[:100]}...'")
+                
+                if changes_found:
+                    logger.info(f"🔄 Total de mudanças detectadas: {len(changes_found)}")
+                else:
+                    logger.info("🔍 Nenhuma diferença encontrada na comparação linha por linha")
             
             # 3. SE NÃO HOUVE MUDANÇAS, RETORNAR CÓPIA SIMPLES
             if not content_changed:
-                logger.info("✅ NENHUMA MUDANÇA DETECTADA - Retornando arquivo original preservado")
-                return edited_filepath
+                # VERIFICAÇÃO ADICIONAL: Comparar tamanho bruto do conteúdo
+                content_size_diff = abs(len(current_content) - len(new_content))
+                logger.info(f"🔍 Diferença de tamanho: {content_size_diff} caracteres")
+                
+                if content_size_diff > 50:  # Se a diferença for significativa
+                    logger.info("🔄 DIFERENÇA DE TAMANHO SIGNIFICATIVA - Aplicando edições mesmo sem mudanças detectadas linha por linha")
+                    content_changed = True
+                else:
+                    logger.info("✅ NENHUMA MUDANÇA DETECTADA - Retornando arquivo original preservado")
+                    return edited_filepath
             
             # 4. SE HOUVE MUDANÇAS, APLICAR ESTRATÉGIA XML
             logger.info("🚀 MUDANÇAS DETECTADAS - Aplicando edições com XML...")
