@@ -745,7 +745,260 @@ class ContractGenerationService:
             logger.error(f"Erro ao aplicar edições de texto: {str(e)}")
             raise
 
+    def _apply_xml_edits(self, contract_path: str, new_content: str, output_path: str) -> str:
+        """
+        Aplica edições usando manipulação XML (método anterior que funcionou)
+        """
+        try:
+            import zipfile
+            from lxml import etree
+            import tempfile
+            import json
+            import re
+            import shutil
+            
+            # Word é um ZIP com XML dentro - vamos manipular diretamente
+            temp_dir = tempfile.mkdtemp()
+            
+            try:
+                # Extrair o ZIP do Word
+                with zipfile.ZipFile(output_path, 'r') as zip_ref:
+                    zip_ref.extractall(temp_dir)
+                
+                logger.info("📂 Documento Word extraído como XML")
+                
+                # Manipular o document.xml (conteúdo principal)
+                doc_xml_path = os.path.join(temp_dir, 'word', 'document.xml')
+                
+                # Ler o XML original
+                with open(doc_xml_path, 'r', encoding='utf-8') as f:
+                    xml_content = f.read()
+                
+                # Parse do XML
+                root = etree.fromstring(xml_content.encode('utf-8'))
+                
+                # Namespace do Word
+                ns = {
+                    'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+                    'wp': 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing',
+                    'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
+                    'pic': 'http://schemas.openxmlformats.org/drawingml/2006/picture'
+                }
+                
+                logger.info("🔍 XML parseado com sucesso")
+                
+                # Encontrar o body
+                body = root.find('.//w:body', ns)
+                if body is None:
+                    raise Exception("Body não encontrado no XML")
+                
+                # Coletar TODOS os elementos formatados (parágrafos e tabelas)
+                formatted_elements = []
+                
+                for elem in body:
+                    if elem.tag.endswith('}p'):  # Parágrafo
+                        formatted_elements.append(('paragraph', elem))
+                    elif elem.tag.endswith('}tbl'):  # Tabela
+                        formatted_elements.append(('table', elem))
+                
+                logger.info(f"📋 Coletados {len(formatted_elements)} elementos formatados")
+                
+                # Processar novo conteúdo
+                new_lines = new_content.split('\n')
+                logger.info(f"📝 Processando {len(new_lines)} linhas do novo conteúdo")
+                
+                # Limpar body mantendo apenas sectPr (configurações de seção)
+                sect_pr = body.find('.//w:sectPr', ns)
+                body.clear()
+                if sect_pr is not None:
+                    body.append(sect_pr)
+                
+                # Aplicar novo conteúdo usando elementos formatados como template
+                para_templates = [elem[1] for elem in formatted_elements if elem[0] == 'paragraph']
+                table_templates = [elem[1] for elem in formatted_elements if elem[0] == 'table']
+                
+                para_template_index = 0
+                table_template_index = 0
+                
+                i = 0
+                while i < len(new_lines):
+                    line = new_lines[i]
+                    
+                    if "[TABELA_JSON]" in line:
+                        # Processar tabela
+                        json_match = re.search(r'\[TABELA_JSON\](.*?)\[/TABELA_JSON\]', line)
+                        if json_match:
+                            try:
+                                table_data = json.loads(json_match.group(1))
+                                
+                                if table_data and table_template_index < len(table_templates):
+                                    # Usar template de tabela disponível
+                                    table_template = table_templates[table_template_index]
+                                    table_template_index += 1
+                                    
+                                    # Clonar template da tabela
+                                    new_table = etree.fromstring(etree.tostring(table_template))
+                                    
+                                    # Aplicar dados na tabela (código anterior...)
+                                    rows = new_table.findall('.//w:tr', ns)
+                                    
+                                    # Aplicar novos dados mantendo formatação
+                                    for row_idx, row_data in enumerate(table_data):
+                                        if row_idx < len(rows):
+                                            cells = rows[row_idx].findall('.//w:tc', ns)
+                                            for col_idx, cell_data in enumerate(row_data):
+                                                if col_idx < len(cells):
+                                                    text_elements = cells[col_idx].findall('.//w:t', ns)
+                                                    if text_elements:
+                                                        for t_elem in text_elements[1:]:
+                                                            t_elem.text = ""
+                                                        text_elements[0].text = str(cell_data)
+                                    
+                                    body.insert(-1 if sect_pr is not None else len(body), new_table)
+                                    logger.info(f"📊 Tabela XML aplicada: {len(table_data)} linhas")
+                                
+                            except Exception as e:
+                                logger.error(f"Erro ao processar tabela: {e}")
+                        
+                        i += 1
+                    
+                    else:
+                        # Processar parágrafo normal
+                        if para_template_index < len(para_templates):
+                            para_template = para_templates[para_template_index]
+                            para_template_index += 1
+                            
+                            # Clonar template do parágrafo
+                            new_para = etree.fromstring(etree.tostring(para_template))
+                            
+                            # Aplicar novo texto mantendo formatação
+                            text_elements = new_para.findall('.//w:t', ns)
+                            if text_elements:
+                                for t_elem in text_elements[1:]:
+                                    t_elem.text = ""
+                                text_elements[0].text = line if line.strip() else ""
+                            
+                            body.insert(-1 if sect_pr is not None else len(body), new_para)
+                        else:
+                            # Criar parágrafo básico se não há mais templates
+                            if line.strip():
+                                para_xml = f'<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:r><w:t>{line}</w:t></w:r></w:p>'
+                                new_para = etree.fromstring(para_xml)
+                                body.insert(-1 if sect_pr is not None else len(body), new_para)
+                        
+                        i += 1
+                
+                # Salvar XML modificado
+                modified_xml = etree.tostring(root, encoding='utf-8', xml_declaration=True, pretty_print=True)
+                with open(doc_xml_path, 'wb') as f:
+                    f.write(modified_xml)
+                
+                # Recriar o ZIP/DOCX
+                with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zip_ref:
+                    for root_dir, dirs, files in os.walk(temp_dir):
+                        for file in files:
+                            file_path = os.path.join(root_dir, file)
+                            arc_name = os.path.relpath(file_path, temp_dir)
+                            zip_ref.write(file_path, arc_name)
+                
+                logger.info(f"🎉 EDIÇÕES XML APLICADAS: {output_path}")
+                return output_path
+                
+            finally:
+                # Limpar diretório temporário
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                
+        except Exception as e:
+            logger.error(f"❌ ERRO na aplicação XML: {str(e)}")
+            raise
+
     def apply_selective_edits(self, contract_path: str, new_content: str) -> str:
+        """
+        Aplica edições de forma inteligente: só modifica se realmente mudou algo.
+        Estratégia: compara conteúdo e só reconstrói se necessário.
+        
+        Args:
+            contract_path: Caminho do contrato original
+            new_content: Novo conteúdo completo editado
+            
+        Returns:
+            Caminho do novo arquivo editado
+        """
+        try:
+            logger.info(f"🔧 INICIANDO aplicação inteligente: {contract_path}")
+            
+            import shutil
+            import tempfile
+            import json
+            import re
+            
+            # Criar cópia do arquivo original
+            base_filename = os.path.basename(contract_path)
+            name_without_ext = os.path.splitext(base_filename)[0]
+            edited_filename = f"{name_without_ext}_editado.docx"
+            edited_filepath = os.path.join(tempfile.gettempdir(), edited_filename)
+            
+            # SEMPRE copiar o original primeiro
+            shutil.copy2(contract_path, edited_filepath)
+            logger.info(f"📋 Arquivo copiado: {edited_filepath}")
+            
+            # 1. EXTRAIR CONTEÚDO ATUAL DO DOCUMENTO
+            current_content = self.extract_text_content(contract_path)
+            logger.info(f"📄 Conteúdo atual extraído: {len(current_content)} chars")
+            
+            # 2. COMPARAR SE REALMENTE MUDOU ALGO
+            current_lines = [line.strip() for line in current_content.split('\n')]
+            new_lines = [line.strip() for line in new_content.split('\n')]
+            
+            # Remover linhas vazias para comparação
+            current_clean = [line for line in current_lines if line]
+            new_clean = [line for line in new_lines if line]
+            
+            # Verificar se houve mudanças significativas
+            content_changed = False
+            
+            if len(current_clean) != len(new_clean):
+                content_changed = True
+                logger.info(f"🔄 Mudança detectada: número de linhas {len(current_clean)} → {len(new_clean)}")
+            else:
+                # Comparar linha por linha (ignorando formatações JSON de tabela)
+                for i, (current_line, new_line) in enumerate(zip(current_clean, new_clean)):
+                    # Pular comparação de linhas JSON de tabela (são geradas automaticamente)
+                    if "[TABELA_JSON]" in current_line or "[TABELA_JSON]" in new_line:
+                        continue
+                    
+                    if current_line != new_line:
+                        content_changed = True
+                        logger.info(f"🔄 Mudança detectada na linha {i}:")
+                        logger.info(f"  ANTES: '{current_line[:100]}...'")
+                        logger.info(f"  DEPOIS: '{new_line[:100]}...'")
+                        break
+            
+            # 3. SE NÃO HOUVE MUDANÇAS, RETORNAR CÓPIA SIMPLES
+            if not content_changed:
+                logger.info("✅ NENHUMA MUDANÇA DETECTADA - Retornando arquivo original preservado")
+                return edited_filepath
+            
+            # 4. SE HOUVE MUDANÇAS, APLICAR ESTRATÉGIA XML
+            logger.info("🚀 MUDANÇAS DETECTADAS - Aplicando edições com XML...")
+            
+            return self._apply_xml_edits(contract_path, new_content, edited_filepath)
+            
+        except Exception as e:
+            logger.error(f"❌ ERRO na aplicação inteligente: {str(e)}")
+            logger.exception("Detalhes completos:")
+            
+            # Fallback: retornar cópia simples do original
+            import shutil
+            base_filename = os.path.basename(contract_path)
+            name_without_ext = os.path.splitext(base_filename)[0]
+            fallback_filename = f"{name_without_ext}_editado.docx"
+            fallback_filepath = os.path.join(tempfile.gettempdir(), fallback_filename)
+            shutil.copy2(contract_path, fallback_filepath)
+            logger.info(f"📋 Fallback: retornando cópia preservada do original")
+            return fallback_filepath
+
+    def apply_selective_edits_OLD(self, contract_path: str, new_content: str) -> str:
         """
         ABORDAGEM FINAL: Manipulação direta do XML do documento Word.
         Esta é a única forma 100% confiável de preservar formatação E aplicar edições.
