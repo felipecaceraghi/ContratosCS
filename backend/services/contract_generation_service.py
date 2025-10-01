@@ -177,7 +177,7 @@ class ContractGenerationService:
             # Não falhar por conta das assinaturas, continuar sem elas
             logger.warning("Continuando geração sem modificar assinaturas")
 
-    def _extract_bpo_companies(self, company_data: Dict[str, Any]) -> tuple[str, List[Dict[str, str]]]:
+    def _extract_bpo_companies(self, company_data: Dict[str, Any]) -> tuple[str, str, List[Dict[str, str]]]:
         """
         Extrai dinamicamente as empresas BPO dos dados da empresa e gera o texto formatado
         
@@ -185,7 +185,7 @@ class ContractGenerationService:
             company_data: Dados da empresa contendo campos BPO
             
         Returns:
-            String formatada com as empresas BPO (a), b), c), etc.
+            Tupla com: (texto_portugues, texto_ingles, lista_empresas)
         """
         try:
             # Campos BPO para verificar
@@ -230,12 +230,14 @@ class ContractGenerationService:
             
             # Endereço padrão para todas as empresas
             endereco_padrao = "Av. Dr. Cardoso de Melo, nº 1608, 8º andar, 81-B, Vila Olímpia, São Paulo/SP, CEP: 04548-005"
+            endereco_padrao_en = "Av. Dr. Cardoso de Melo, No. 1608, 8th floor, suite 81-B, Vila Olímpia, São Paulo/SP, ZIP: 04548-005"
             
             # Gerar texto formatado usando fuzzy matching
             companies_list = sorted(list(bpo_companies))
             letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']  # Suporte até 10 empresas
             
-            formatted_companies = []
+            formatted_companies_pt = []
+            formatted_companies_en = []
             companies_for_signature = []  # Lista de dicionários para assinaturas
             
             for i, bpo_name in enumerate(companies_list):
@@ -260,38 +262,62 @@ class ContractGenerationService:
                         'cnpj': cnpj
                     })
                     
-                    formatted_text = (
+                    # Texto em português
+                    formatted_text_pt = (
                         f"{letter}) {razao_social.upper()}, inscrita no CNPJ sob o nº {cnpj}, "
                         f"com sede à {endereco_padrao}"
                     )
-                    formatted_companies.append(formatted_text)
+                    formatted_companies_pt.append(formatted_text_pt)
+                    
+                    # Texto em inglês
+                    formatted_text_en = (
+                        f"{letter}) {razao_social.upper()}, enrolled with CNPJ under No. {cnpj}, "
+                        f"with headquarters at {endereco_padrao_en}"
+                    )
+                    formatted_companies_en.append(formatted_text_en)
             
-            # Juntar todas com "; " e adicionar "e" antes da última
-            if len(formatted_companies) == 1:
-                result = formatted_companies[0]
-            elif len(formatted_companies) == 2:
-                result = f"{formatted_companies[0]}; e {formatted_companies[1]}"
-            else:
-                result = "; ".join(formatted_companies[:-1]) + f"; e {formatted_companies[-1]}"
+            # Função para juntar empresas com conjunção
+            def join_companies(companies_list, conjunction):
+                if len(companies_list) == 1:
+                    return companies_list[0]
+                elif len(companies_list) == 2:
+                    return f"{companies_list[0]}; {conjunction} {companies_list[1]}"
+                else:
+                    return "; ".join(companies_list[:-1]) + f"; {conjunction} {companies_list[-1]}"
+            
+            # Juntar todas com "; " e adicionar "e"/"and" antes da última
+            result_pt = join_companies(formatted_companies_pt, "e") + ", todas neste ato representadas na forma de seus atos constitutivos, doravante denominadas simplesmente como CONTRATADA;"
+            result_en = join_companies(formatted_companies_en, "and") + ", all herein represented in accordance with their corporate documents, hereinafter referred to simply as the CONTRACTED PARTY;"
             
             logger.info(f"Texto BPO gerado com {len(companies_for_signature)} empresas")
-            return result, companies_for_signature
+            return result_pt, result_en, companies_for_signature
             
         except Exception as e:
             logger.error(f"Erro ao extrair empresas BPO: {str(e)}")
             # Retornar um padrão em caso de erro usando dados reais
             endereco_padrao = "Av. Dr. Cardoso de Melo, nº 1608, 8º andar, 81-B, Vila Olímpia, São Paulo/SP, CEP: 04548-005"
-            fallback_text = (
+            endereco_padrao_en = "Av. Dr. Cardoso de Melo, No. 1608, 8th floor, suite 81-B, Vila Olímpia, São Paulo/SP, ZIP: 04548-005"
+            
+            fallback_text_pt = (
                 f"a) GF SERVICOS DE CONTABILIDADE LTDA., inscrita no CNPJ sob o nº 36.583.021/0001-24, com sede à {endereco_padrao}; "
                 f"b) E. REEVE MUSK SERVIÇOS DE CONTABILIDADE LTDA., inscrita no CNPJ sob o nº 40.897.585/0001-09, com sede à {endereco_padrao}; "
-                f"e c) HR HILL SERVIÇOS ADMINISTRATIVOS LTDA., inscrita no CNPJ sob o nº 36.446.561/0001-66, com sede à {endereco_padrao}"
+                f"e c) HR HILL SERVIÇOS ADMINISTRATIVOS LTDA., inscrita no CNPJ sob o nº 36.446.561/0001-66, com sede à {endereco_padrao}, "
+                f"todas neste ato representadas na forma de seus atos constitutivos, doravante denominadas simplesmente como CONTRATADA;"
             )
+            
+            fallback_text_en = (
+                f"a) GF SERVICOS DE CONTABILIDADE LTDA., enrolled with CNPJ under No. 36.583.021/0001-24, with headquarters at {endereco_padrao_en}; "
+                f"b) E. REEVE MUSK SERVIÇOS DE CONTABILIDADE LTDA., enrolled with CNPJ under No. 40.897.585/0001-09, with headquarters at {endereco_padrao_en}; "
+                f"and c) HR HILL SERVIÇOS ADMINISTRATIVOS LTDA., enrolled with CNPJ under No. 36.446.561/0001-66, with headquarters at {endereco_padrao_en}, "
+                f"all herein represented in accordance with their corporate documents, hereinafter referred to simply as the CONTRACTED PARTY;"
+            )
+            
             fallback_companies = [
                 {"nome": "GF SERVIÇOS DE CONTABILIDADE LTDA.", "cnpj": "36.583.021/0001-24"},
                 {"nome": "E. REEVE MUSK SERVIÇOS DE CONTABILIDADE LTDA.", "cnpj": "40.897.585/0001-09"},
                 {"nome": "HR HILL SERVIÇOS ADMINISTRATIVOS LTDA.", "cnpj": "36.446.561/0001-66"}
             ]
-            return fallback_text, fallback_companies
+            return fallback_text_pt, fallback_text_en, fallback_companies
     
     def generate_contract(self, company_data: Dict[str, Any]) -> str:
         """
@@ -326,7 +352,7 @@ class ContractGenerationService:
             doc = Document(self.template_path)
             
             # Gerar texto dinâmico das empresas BPO e lista para assinaturas
-            empresas_bpo_texto, empresas_bpo_lista = self._extract_bpo_companies(company_data)
+            empresas_bpo_texto_pt, empresas_bpo_texto_en, empresas_bpo_lista = self._extract_bpo_companies(company_data)
             
             # Gerar seção de assinaturas dinamicamente
             self._generate_signature_section(empresas_bpo_lista)
@@ -338,7 +364,9 @@ class ContractGenerationService:
             field_mapping = {
                 '[RAZÃO SOCIAL]': company_data['razao_social'],
                 '[CNPJ]': company_data['cnpj'],
-                '[ENDEREÇO]': company_data['endereco']
+                '[ENDEREÇO]': company_data['endereco'],
+                '[COMPANY NAME]': company_data['razao_social'],
+                '[ADDRESS]': company_data['endereco']
             }
             
             logger.info(f"Campos a serem substituídos: {list(field_mapping.keys())}")
@@ -346,9 +374,15 @@ class ContractGenerationService:
             # Substituir campos nos parágrafos (atualizado para negrito)
             total_replacements = 0
             for i, paragraph in enumerate(doc.paragraphs):
+                # Substituir texto em português das empresas BPO
                 if 'S.JOBS SERVIÇOS DE CONTABILIDADE LTDA.' in paragraph.text and 'E. REEVE MUSK SERVICOS' in paragraph.text:
-                    logger.info(f"Substituindo parágrafo {i} com texto dinâmico das empresas BPO")
-                    paragraph.text = empresas_bpo_texto
+                    logger.info(f"Substituindo parágrafo {i} com texto dinâmico das empresas BPO (PT)")
+                    paragraph.text = empresas_bpo_texto_pt
+                    total_replacements += 1
+                # Substituir texto em inglês das empresas BPO
+                elif 'enrolled with CNPJ under No.' in paragraph.text and 'CONTRACTED PARTY' in paragraph.text:
+                    logger.info(f"Substituindo parágrafo {i} com texto dinâmico das empresas BPO (EN)")
+                    paragraph.text = empresas_bpo_texto_en
                     total_replacements += 1
                 elif 'ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO' in paragraph.text:
                     logger.info(f"Removendo parágrafo {i} com texto indesejado")
@@ -388,7 +422,8 @@ class ContractGenerationService:
                                 cell.text = new_text
             
             logger.info(f"Total de substituições realizadas: {total_replacements}")
-            logger.info(f"Texto das empresas BPO gerado: {empresas_bpo_texto[:100]}...")
+            logger.info(f"Texto das empresas BPO (PT) gerado: {empresas_bpo_texto_pt[:100]}...")
+            logger.info(f"Texto das empresas BPO (EN) gerado: {empresas_bpo_texto_en[:100]}...")
             
             # Gerar nome único para arquivo temporário
             temp_filename = f"contrato_{company_data['cnpj'].replace('.', '').replace('/', '').replace('-', '')}_{hash(company_data['razao_social']) % 10000}.docx"
