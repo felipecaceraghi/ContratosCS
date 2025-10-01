@@ -58,6 +58,13 @@ export default function HomePage() {
       href: "/contratos/termo-distrato-completo",
       isAvailable: true
     },
+    {
+      title: "BPO Financeiro",
+      description: "",
+      icon: "💰",
+      href: "/contratos/bpo-financeiro",
+      isAvailable: true
+    },
     // Aqui você pode adicionar outros tipos de contratos no futuro
     // {
     //   title: "Consultoria Fiscal",

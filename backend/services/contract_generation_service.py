@@ -410,9 +410,10 @@ class ContractGenerationService:
             if missing_fields:
                 raise ValueError(f"Campos obrigatórios ausentes: {', '.join(missing_fields)}")
             
-            # Detectar se é um termo de distrato (qualquer variação)
+            # Detectar o tipo de contrato
             is_distrato = 'termo_distrato' in self.template_path.lower()
             is_distrato_sem_contrato = 'termo_distrato_sem_contrato' in self.template_path.lower()
+            is_bpo_financeiro = 'bpo_financeiro' in self.template_path.lower()
             
             if is_distrato:
                 # Para termos de distrato, também usar empresas BPO dinâmicas
@@ -476,7 +477,11 @@ class ContractGenerationService:
                         '[CNPJ]': company_data['cnpj'],
                         '[ENDEREÇO]': company_data['endereco'],
                         '[COMPANY NAME]': company_data['razao_social'],
-                        '[ADDRESS]': company_data['endereco']
+                        '[ADDRESS]': company_data['endereco'],
+                        'RAZÃO SOCIAL DO CLIENTE': company_data['razao_social'],
+                        'RAZÃO SOCIAL DA EMPRESA': company_data['razao_social'],
+                        'CNPJ do Cliente': company_data['cnpj'],
+                        'endereço completo': company_data['endereco']
                     }
                     
                     logger.info(f"Campos de termo de distrato completo a serem substituídos: {list(field_mapping.keys())}")
@@ -514,41 +519,134 @@ class ContractGenerationService:
                         break
                 
                 if signature_start > -1:
-                    # Limpar parágrafos da seção de assinaturas antiga
-                    if signature_end == -1:
-                        signature_end = len(doc.paragraphs) - 5  # Aproximação se não encontrar o fim
+                    # Encontrar o final da seção mais precisamente
+                    contratante_start = -1
+                    for i in range(signature_start + 1, len(doc.paragraphs)):
+                        if 'PELA CONTRATANTE' in doc.paragraphs[i].text or 'CONTRATANTE:' in doc.paragraphs[i].text:
+                            contratante_start = i
+                            break
                     
-                    logger.info(f"Removendo parágrafos de assinatura de {signature_start + 1} até {signature_end - 1}")
+                    if contratante_start == -1:
+                        contratante_start = len(doc.paragraphs) - 10  # Fallback
                     
-                    # Remover parágrafos antigos (em ordem reversa para não afetar índices)
-                    paragraphs_to_remove = []
-                    for i in range(signature_start + 1, signature_end):
-                        if i < len(doc.paragraphs):
-                            paragraphs_to_remove.append(doc.paragraphs[i])
+                    logger.info(f"Removendo parágrafos de assinatura de {signature_start + 1} até {contratante_start - 1}")
                     
-                    for p in reversed(paragraphs_to_remove):
-                        p.clear()
+                    # Criar novo conteúdo para as assinaturas
+                    signature_content = []
                     
-                    # Adicionar novas assinaturas dinamicamente
-                    insert_point = signature_start + 1
                     for i, company in enumerate(empresas_bpo_lista):
-                        # Adicionar linha em branco
-                        new_para = doc.paragraphs[insert_point].insert_paragraph_before("")
+                        signature_content.append("")  # Linha em branco
+                        signature_content.append("_" * 39)  # Linha de assinatura
+                        signature_content.append(company['nome'])  # Nome da empresa
+                    
+                    # Adicionar apenas 2 linhas em branco no final (reduzir espaçamento)
+                    signature_content.extend(["", ""])
+                    
+                    # Substituir o conteúdo entre PELA CONTRATADA e PELA CONTRATANTE
+                    # Primeiro, limpar parágrafos existentes
+                    for i in range(signature_start + 1, contratante_start):
+                        if i < len(doc.paragraphs):
+                            doc.paragraphs[i].clear()
+                    
+                    # Depois, definir o novo conteúdo nos parágrafos limpos
+                    for idx, content in enumerate(signature_content):
+                        para_index = signature_start + 1 + idx
+                        if para_index < len(doc.paragraphs):
+                            doc.paragraphs[para_index].text = content
+                        else:
+                            # Se não há parágrafos suficientes, adicionar novos
+                            new_para = doc.add_paragraph(content)
                         
-                        # Adicionar linha de assinatura (só a linha)
-                        signature_line = "_" * 39
-                        signature_para = doc.paragraphs[insert_point + 1].insert_paragraph_before(signature_line)
-                        
-                        # Adicionar nome da empresa abaixo da linha
-                        name_para = doc.paragraphs[insert_point + 2].insert_paragraph_before(company['nome'])
-                        
-                        # Adicionar linha em branco
-                        doc.paragraphs[insert_point + 3].insert_paragraph_before("")
-                        
-                        insert_point += 4
-                        logger.info(f"Adicionada assinatura para: {company['nome']}")
+                        if idx < len(empresas_bpo_lista) * 3:  # Log apenas para as empresas, não para as linhas em branco finais
+                            if (idx + 1) % 3 == 0:  # A cada 3 itens (linha vazia, linha de assinatura, nome)
+                                company_index = idx // 3
+                                logger.info(f"Adicionada assinatura para: {empresas_bpo_lista[company_index]['nome']}")
                     
                     logger.info(f"Seção de assinaturas regenerada com {len(empresas_bpo_lista)} empresas")
+                
+            elif is_bpo_financeiro:
+                # Lógica específica para BPO Financeiro
+                logger.info("Detectado contrato BPO Financeiro")
+                
+                # Carregar template
+                doc = Document(self.template_path)
+                
+                # Gerar texto dinâmico das empresas BPO e lista para assinaturas
+                empresas_bpo_texto_pt, empresas_bpo_texto_en, empresas_bpo_lista = self._extract_bpo_companies(company_data)
+                
+                # Gerar seção de assinaturas dinamicamente
+                self._generate_signature_section(empresas_bpo_lista)
+                
+                # Recarregar template após modificar assinaturas
+                doc = Document(self.template_path)
+                
+                # Mapeamento de campos básicos para BPO Financeiro
+                field_mapping = {
+                    '[RAZÃO SOCIAL]': company_data['razao_social'],
+                    '[CNPJ]': company_data['cnpj'],
+                    '[ENDEREÇO]': company_data['endereco'],
+                    '[COMPANY NAME]': company_data['razao_social'],
+                    '[ADDRESS]': company_data['endereco']
+                }
+                
+                logger.info(f"Campos BPO Financeiro a serem substituídos: {list(field_mapping.keys())}")
+                
+                # Substituir campos nos parágrafos (atualizado para negrito)
+                total_replacements = 0
+                
+                # Primeiro, verificar e substituir nas tabelas (onde estão as empresas BPO)
+                for table_idx, table in enumerate(doc.tables):
+                    for row_idx, row in enumerate(table.rows):
+                        for cell_idx, cell in enumerate(row.cells):
+                            original_text = cell.text.strip()
+                            new_text = original_text
+                            
+                            # Substituir texto em português das empresas BPO
+                            if 'S.JOBS SERVIÇOS DE CONTABILIDADE LTDA.' in original_text and 'inscrita no CNPJ' in original_text:
+                                logger.info(f"Substituindo célula da tabela {table_idx}[{row_idx}][{cell_idx}] com texto dinâmico das empresas BPO (PT)")
+                                new_text = empresas_bpo_texto_pt
+                                total_replacements += 1
+                            # Substituir texto em inglês das empresas BPO
+                            elif 'enrolled with CNPJ under No.' in original_text and 'CONTRACTED PARTY' in original_text:
+                                logger.info(f"Substituindo célula da tabela {table_idx}[{row_idx}][{cell_idx}] com texto dinâmico das empresas BPO (EN)")
+                                new_text = empresas_bpo_texto_en
+                                total_replacements += 1
+                            # Remover textos indesejados nas tabelas
+                            elif 'ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO' in original_text:
+                                new_text = original_text.replace('*******ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO *********', '')
+                                new_text = new_text.replace('ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO', '')
+                                total_replacements += 1
+                                logger.info("Removido texto indesejado da tabela")
+                            else:
+                                # Substituir placeholders básicos
+                                for placeholder, value in field_mapping.items():
+                                    if placeholder in new_text:
+                                        new_text = new_text.replace(placeholder, str(value))
+                                        total_replacements += 1
+                                        logger.debug(f"Substituído '{placeholder}' por '{value[:50]}...' na tabela")
+                            
+                            # Aplicar o novo texto se houve mudanças
+                            if new_text != original_text:
+                                cell.text = new_text
+                
+                # Depois, verificar parágrafos para outros placeholders
+                for i, paragraph in enumerate(doc.paragraphs):
+                    if 'ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO' in paragraph.text:
+                        logger.info(f"Removendo parágrafo {i} com texto indesejado")
+                        paragraph.text = ""  # Limpar o parágrafo
+                        total_replacements += 1
+                    elif paragraph.text:
+                        for run in paragraph.runs:
+                            for placeholder, value in field_mapping.items():
+                                if placeholder in run.text:
+                                    run.text = run.text.replace(placeholder, str(value))
+                                    run.bold = True
+                                    total_replacements += 1
+                                    logger.debug(f"Substituído '{placeholder}' por '{value[:50]}...' em run do parágrafo")
+                
+                logger.info(f"Total de substituições realizadas no BPO Financeiro: {total_replacements}")
+                logger.info(f"Texto das empresas BPO (PT) gerado: {empresas_bpo_texto_pt[:400]}...")
+                logger.info(f"Texto das empresas BPO (EN) gerado: {empresas_bpo_texto_en[:400]}...")
                 
             else:
                 # Lógica original para contratos BPO
@@ -790,12 +888,18 @@ class ContractGenerationService:
                     paragraph = Paragraph(element, doc)
                     paragraph_text = paragraph.text.strip()
                     
-                    # Incluir TODOS os parágrafos, mesmo vazios (para manter correspondência)
+                    # Incluir TODOS os parágrafos, mas compactar espaços em branco excessivos
                     if paragraph_text:
                         content_lines.append(paragraph_text)
                         logger.debug(f"Parágrafo extraído: '{paragraph_text}'")
                     else:
-                        # Parágrafos vazios também são importantes para manter estrutura
+                        # Para parágrafos vazios, verificar se já temos muitos vazios consecutivos
+                        # Limitar a no máximo 3 linhas vazias consecutivas
+                        if len(content_lines) >= 3:
+                            last_three = content_lines[-3:]
+                            if all(line == "" for line in last_three):
+                                # Já temos 3 linhas vazias consecutivas, pular esta
+                                continue
                         content_lines.append("")
                     
                 elif isinstance(element, CT_Tbl):
