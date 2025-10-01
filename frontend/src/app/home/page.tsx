@@ -32,14 +32,14 @@ export default function HomePage() {
   const contractTypes = [
     {
       title: "BPO Contábil Completo",
-      description: "Contrato completo para serviços de Business Process Outsourcing (BPO) contábil, incluindo processamento de documentos, conciliações e relatórios financeiros.",
+      description: "",
       icon: "📊",
       href: "/contratos/bpo-contabil",
       isAvailable: true
     },
     {
       title: "BPO Contábil Completo - Bicolunado",
-      description: "Contrato completo para serviços de BPO contábil com layout bicolunado, ideal para apresentação mais compacta e organizada dos termos contratuais.",
+      description: "",
       icon: "📋",
       href: "/contratos/bpo-contabil-bicolunado",
       isAvailable: true

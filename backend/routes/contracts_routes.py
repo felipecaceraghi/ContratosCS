@@ -263,8 +263,8 @@ def generate_individual_contract():
         logger.info(f"Dados preparados para contrato: {contract_data}")
         
         # Gerar contrato
-        contract_service = ContractGenerationService()
-        contract_path = contract_service.generate_contract(contract_data, contract_type=contract_type)
+        contract_service = ContractGenerationService(contract_type=contract_type)
+        contract_path = contract_service.generate_contract(contract_data)
         
         # Retornar informações do arquivo gerado
         filename = os.path.basename(contract_path)

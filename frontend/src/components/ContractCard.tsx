@@ -23,9 +23,11 @@ export default function ContractCard({
         <h3 className="text-xl font-semibold text-gray-800">{title}</h3>
       </div>
       
-      <p className="text-gray-600 mb-6 leading-relaxed">
-        {description}
-      </p>
+      {description && (
+        <p className="text-gray-600 mb-6 leading-relaxed">
+          {description}
+        </p>
+      )}
       
       <div className="flex items-center justify-between">
         <div className={`px-3 py-1 rounded-full text-sm font-medium ${
