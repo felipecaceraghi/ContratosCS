@@ -414,7 +414,7 @@ class ContractGenerationService:
             is_distrato = 'termo_distrato' in self.template_path.lower()
             
             if is_distrato:
-                # Para termos de distrato, usar placeholders específicos
+                # Para termos de distrato, não gerar seção de empresas BPO
                 logger.info("Detectado termo de distrato - usando placeholders específicos")
                 
                 # Carregar template
@@ -449,9 +449,6 @@ class ContractGenerationService:
                 
             else:
                 # Lógica original para contratos BPO
-                # Carregar template
-                doc = Document(self.template_path)
-                
                 # Gerar texto dinâmico das empresas BPO e lista para assinaturas
                 empresas_bpo_texto_pt, empresas_bpo_texto_en, empresas_bpo_lista = self._extract_bpo_companies(company_data)
                 
@@ -461,7 +458,7 @@ class ContractGenerationService:
                 # Recarregar template após modificar assinaturas
                 doc = Document(self.template_path)
                 
-                # Mapeamento de campos básicos
+                # Mapeamento de campos básicos para contratos BPO
                 field_mapping = {
                     '[RAZÃO SOCIAL]': company_data['razao_social'],
                     '[CNPJ]': company_data['cnpj'],
@@ -528,17 +525,17 @@ class ContractGenerationService:
                 logger.info(f"Total de substituições realizadas: {total_replacements}")
                 logger.info(f"Texto das empresas BPO (PT) gerado: {empresas_bpo_texto_pt[:400]}...")
                 logger.info(f"Texto das empresas BPO (EN) gerado: {empresas_bpo_texto_en[:400]}...")
-            
-            # Gerar nome único para arquivo temporário
-            temp_filename = f"contrato_{company_data['cnpj'].replace('.', '').replace('/', '').replace('-', '')}_{hash(company_data['razao_social']) % 10000}.docx"
-            temp_filepath = os.path.join(tempfile.gettempdir(), temp_filename)
-            
-            # Salvar documento preenchido
-            doc.save(temp_filepath)
-            
-            logger.info(f"Contrato gerado com sucesso: {temp_filepath}")
-            return temp_filepath
-            
+        
+        # Gerar nome único para arquivo temporário (fora do bloco if/else)
+        temp_filename = f"contrato_{company_data['cnpj'].replace('.', '').replace('/', '').replace('-', '')}_{hash(company_data['razao_social']) % 10000}.docx"
+        temp_filepath = os.path.join(tempfile.gettempdir(), temp_filename)
+        
+        # Salvar documento preenchido
+        doc.save(temp_filepath)
+        
+        logger.info(f"Contrato gerado com sucesso: {temp_filepath}")
+        return temp_filepath
+
         except Exception as e:
             logger.error(f"Erro ao gerar contrato: {str(e)}")
             raise

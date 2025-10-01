@@ -44,6 +44,13 @@ export default function HomePage() {
       href: "/contratos/bpo-contabil-bicolunado",
       isAvailable: true
     },
+    {
+      title: "Termo de Distrato sem Contrato",
+      description: "",
+      icon: "📄",
+      href: "/contratos/termo-distrato",
+      isAvailable: true
+    },
     // Aqui você pode adicionar outros tipos de contratos no futuro
     // {
     //   title: "Consultoria Fiscal",
