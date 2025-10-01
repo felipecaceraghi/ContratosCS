@@ -410,42 +410,145 @@ class ContractGenerationService:
             if missing_fields:
                 raise ValueError(f"Campos obrigatórios ausentes: {', '.join(missing_fields)}")
             
-            # Detectar se é um termo de distrato (template diferente)
+            # Detectar se é um termo de distrato (qualquer variação)
             is_distrato = 'termo_distrato' in self.template_path.lower()
+            is_distrato_sem_contrato = 'termo_distrato_sem_contrato' in self.template_path.lower()
             
             if is_distrato:
-                # Para termos de distrato, usar placeholders específicos
-                logger.info("Detectado termo de distrato - usando placeholders específicos")
+                # Para termos de distrato, também usar empresas BPO dinâmicas
+                logger.info(f"Detectado termo de distrato - tipo: {'sem contrato' if is_distrato_sem_contrato else 'completo'}")
+                
+                # Gerar texto dinâmico das empresas BPO e lista para assinaturas
+                empresas_bpo_texto_pt, empresas_bpo_texto_en, empresas_bpo_lista = self._extract_bpo_companies(company_data)
                 
                 # Carregar template
                 doc = Document(self.template_path)
                 
-                # Mapeamento de campos específicos para termo de distrato
-                field_mapping = {
-                    'RAZÃO SOCIAL DA EMPRESA': company_data['razao_social'],
-                    'CNPJ do Cliente': company_data['cnpj'],
-                    'endereço completo': company_data['endereco'],
-                    'RAZÃO SOCIAL DO CLIENTE': company_data['razao_social']
-                }
-                
-                logger.info(f"Campos de termo de distrato a serem substituídos: {list(field_mapping.keys())}")
-                
-                # Substituir nos parágrafos
+                # Primeiro, substituir o texto fixo das empresas BPO pelo dinâmico
                 total_replacements = 0
                 for i, paragraph in enumerate(doc.paragraphs):
                     original_text = paragraph.text
                     new_text = original_text
                     
-                    for placeholder, value in field_mapping.items():
-                        if placeholder in new_text:
-                            new_text = new_text.replace(placeholder, str(value))
-                            total_replacements += 1
-                            logger.info(f"Substituído '{placeholder}' por '{value}' no parágrafo {i}")
+                    # Detectar e substituir o texto fixo do GO FURTHER GROUP
+                    if 'GO FURTHER GROUP, grupo de empresas independentes formado por:' in original_text and len(original_text) > 1000:
+                        logger.info(f"Substituindo texto fixo das empresas BPO no parágrafo {i} do termo de distrato")
+                        logger.info(f"Texto original tinha {len(original_text)} caracteres")
+                        
+                        # Substituir por texto dinâmico com formato de distrato
+                        new_text = f"CONTRATADA: GO FURTHER GROUP, grupo de empresas independentes formado por: {empresas_bpo_texto_pt.replace('CONTRATADA: GO FURTHER GROUP, grupo de empresas independentes formado por: ', '').replace(', todas neste ato representadas na forma de seus atos constitutivos, doravante denominadas simplesmente como CONTRATADA;', ', todas neste ato representadas na forma de seus atos constitutivos.')}"
+                        
+                        total_replacements += 1
+                        logger.info(f"Novo texto terá {len(new_text)} caracteres")
+                        logger.info(f"Novo texto: {new_text[:200]}...")
                     
                     if new_text != original_text:
                         paragraph.text = new_text
                 
+                # Substituir placeholders específicos do cliente (apenas para distrato sem contrato)
+                if is_distrato_sem_contrato:
+                    field_mapping = {
+                        'RAZÃO SOCIAL DA EMPRESA': company_data['razao_social'],
+                        'CNPJ do Cliente': company_data['cnpj'],
+                        'endereço completo': company_data['endereco'],
+                        'RAZÃO SOCIAL DO CLIENTE': company_data['razao_social']
+                    }
+                    
+                    logger.info(f"Campos de termo de distrato sem contrato a serem substituídos: {list(field_mapping.keys())}")
+                    
+                    # Substituir placeholders nos parágrafos
+                    for i, paragraph in enumerate(doc.paragraphs):
+                        original_text = paragraph.text
+                        new_text = original_text
+                        
+                        for placeholder, value in field_mapping.items():
+                            if placeholder in new_text:
+                                new_text = new_text.replace(placeholder, str(value))
+                                total_replacements += 1
+                                logger.info(f"Substituído '{placeholder}' por '{value}' no parágrafo {i}")
+                        
+                        if new_text != original_text:
+                            paragraph.text = new_text
+                else:
+                    # Para termo de distrato completo, usar placeholders similares aos contratos BPO
+                    field_mapping = {
+                        '[RAZÃO SOCIAL]': company_data['razao_social'],
+                        '[CNPJ]': company_data['cnpj'],
+                        '[ENDEREÇO]': company_data['endereco'],
+                        '[COMPANY NAME]': company_data['razao_social'],
+                        '[ADDRESS]': company_data['endereco']
+                    }
+                    
+                    logger.info(f"Campos de termo de distrato completo a serem substituídos: {list(field_mapping.keys())}")
+                    
+                    # Substituir campos nos parágrafos
+                    for i, paragraph in enumerate(doc.paragraphs):
+                        original_text = paragraph.text
+                        new_text = original_text
+                        
+                        for placeholder, value in field_mapping.items():
+                            if placeholder in new_text:
+                                new_text = new_text.replace(placeholder, str(value))
+                                total_replacements += 1
+                                logger.info(f"Substituído '{placeholder}' por '{value}' no parágrafo {i}")
+                        
+                        if new_text != original_text:
+                            paragraph.text = new_text
+                
                 logger.info(f"Total de substituições realizadas no termo de distrato: {total_replacements}")
+                
+                # Gerar seção de assinaturas dinâmica para termo de distrato
+                logger.info("Gerando seção de assinaturas dinâmica para termo de distrato")
+                
+                # Encontrar e substituir a seção de assinaturas
+                signature_start = -1
+                signature_end = -1
+                
+                for i, paragraph in enumerate(doc.paragraphs):
+                    if 'PELA CONTRATADA:' in paragraph.text:
+                        signature_start = i
+                        logger.info(f"Início da seção de assinaturas encontrado no parágrafo {i}")
+                    elif signature_start > -1 and ('PELO CONTRATANTE' in paragraph.text or 'CONTRATANTE:' in paragraph.text):
+                        signature_end = i
+                        logger.info(f"Fim da seção de assinaturas encontrado no parágrafo {i}")
+                        break
+                
+                if signature_start > -1:
+                    # Limpar parágrafos da seção de assinaturas antiga
+                    if signature_end == -1:
+                        signature_end = len(doc.paragraphs) - 5  # Aproximação se não encontrar o fim
+                    
+                    logger.info(f"Removendo parágrafos de assinatura de {signature_start + 1} até {signature_end - 1}")
+                    
+                    # Remover parágrafos antigos (em ordem reversa para não afetar índices)
+                    paragraphs_to_remove = []
+                    for i in range(signature_start + 1, signature_end):
+                        if i < len(doc.paragraphs):
+                            paragraphs_to_remove.append(doc.paragraphs[i])
+                    
+                    for p in reversed(paragraphs_to_remove):
+                        p.clear()
+                    
+                    # Adicionar novas assinaturas dinamicamente
+                    insert_point = signature_start + 1
+                    for i, company in enumerate(empresas_bpo_lista):
+                        # Adicionar linha em branco
+                        new_para = doc.paragraphs[insert_point].insert_paragraph_before("")
+                        
+                        # Adicionar linha de assinatura (só a linha)
+                        signature_line = "_" * 39
+                        signature_para = doc.paragraphs[insert_point + 1].insert_paragraph_before(signature_line)
+                        
+                        # Adicionar nome da empresa abaixo da linha
+                        name_para = doc.paragraphs[insert_point + 2].insert_paragraph_before(company['nome'])
+                        
+                        # Adicionar linha em branco
+                        doc.paragraphs[insert_point + 3].insert_paragraph_before("")
+                        
+                        insert_point += 4
+                        logger.info(f"Adicionada assinatura para: {company['nome']}")
+                    
+                    logger.info(f"Seção de assinaturas regenerada com {len(empresas_bpo_lista)} empresas")
                 
             else:
                 # Lógica original para contratos BPO

@@ -51,6 +51,13 @@ export default function HomePage() {
       href: "/contratos/termo-distrato",
       isAvailable: true
     },
+    {
+      title: "Termo de Distrato",
+      description: "",
+      icon: "📜",
+      href: "/contratos/termo-distrato-completo",
+      isAvailable: true
+    },
     // Aqui você pode adicionar outros tipos de contratos no futuro
     // {
     //   title: "Consultoria Fiscal",
