@@ -49,10 +49,12 @@ export default function BpoFinanceiroPage() {
 
   const loadCompaniesCount = async () => {
     try {
-      const response = await companiesAPI.getCount();
-      setCompaniesCount(response.count);
+      const result = await companiesAPI.getCount();
+      if (result.status === 'success') {
+        setCompaniesCount(result.total_companies);
+      }
     } catch (error) {
-      console.error('Erro ao carregar contagem de empresas:', error);
+      console.error('Erro ao carregar contagem:', error);
     }
   };
 
