@@ -137,31 +137,29 @@ export default function BpoFinanceiroPage() {
             </button>
           </div>
 
-          {/* Status da Base de Dados */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Base de Dados</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex items-center space-x-3">
-                <div className="flex-shrink-0">
-                  <div className={`w-3 h-3 rounded-full ${companiesCount !== null && companiesCount > 0 ? 'bg-green-400' : 'bg-red-400'}`}></div>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Empresas cadastradas</p>
-                  <p className="text-sm text-gray-500">
-                    {companiesCount !== null ? `${companiesCount} empresas` : 'Carregando...'}
-                  </p>
-                </div>
+          {/* Contract Info Banner */}
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
+            <div className="flex items-center space-x-3">
+              <div className="text-2xl">💰</div>
+              <div>
+                <h3 className="text-lg font-semibold text-blue-900">
+                  Contrato BPO Financeiro
+                </h3>
+                <p className="text-blue-800">
+                  Gere contratos para serviços de Business Process Outsourcing (BPO) financeiro, 
+                  incluindo gestão financeira, contas a pagar e receber, e análises financeiras.
+                </p>
               </div>
             </div>
           </div>
 
-          {/* Search and Contract Generation */}
-          {(companiesCount !== null && companiesCount > 0) && (
+          {/* Company Search for Regular Users */}
+          {!user?.admin && (
             <div className="space-y-6">
-              {/* Company Search */}
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Buscar Empresas</h2>
-                <GroupCompanySearch
+              {/* Busca de Empresas */}
+              <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Buscar Empresas por Grupo</h3>
+                <GroupCompanySearch 
                   onCompaniesSelect={setSelectedCompanies}
                   selectedCompanies={selectedCompanies}
                 />
@@ -179,9 +177,52 @@ export default function BpoFinanceiroPage() {
           {/* Admin Section - Only for admins */}
           {user?.admin && (
             <>
+              {/* Status da Base de Dados */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Base de Dados</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="flex items-center space-x-3">
+                    <div className="flex-shrink-0">
+                      <div className={`w-3 h-3 rounded-full ${companiesCount !== null && companiesCount > 0 ? 'bg-green-400' : 'bg-red-400'}`}></div>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">Empresas cadastradas</p>
+                      <p className="text-sm text-gray-500">
+                        {companiesCount !== null ? `${companiesCount} empresas` : 'Carregando...'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Search and Contract Generation for Admins */}
+              {(companiesCount !== null && companiesCount > 0) && (
+                <div className="space-y-6">
+                  {/* Company Search */}
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-4">Buscar Empresas</h2>
+                    <GroupCompanySearch
+                      onCompaniesSelect={setSelectedCompanies}
+                      selectedCompanies={selectedCompanies}
+                    />
+                  </div>
+
+                  {/* Gerador de Contratos */}
+                  <ContractGenerator 
+                    selectedCompanies={selectedCompanies}
+                    onClearSelection={() => setSelectedCompanies([])}
+                    contractType="bpo_financeiro"
+                  />
+                </div>
+              )}
               {/* Admin Tools */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Ferramentas Administrativas</h2>
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900">Ferramentas Administrativas</h3>
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 border border-purple-200">
+                    ✨ Apenas Admins
+                  </span>
+                </div>
                 
                 {/* SharePoint Status */}
                 <div className="mb-6">
