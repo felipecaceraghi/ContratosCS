@@ -72,7 +72,7 @@ class ContractGenerationService:
         """
         if template_path is None:
             # Caminho padrão para o template
-            template_path = os.path.join(os.path.dirname(__file__), '..', 'utils', 'contrato.docx')
+            template_path = os.path.join(os.path.dirname(__file__), '..', 'utils', 'bpo_contabil_completo.docx')
         
         self.template_path = os.path.abspath(template_path)
         
@@ -271,12 +271,13 @@ class ContractGenerationService:
             ]
             return fallback_text, fallback_companies
     
-    def generate_contract(self, company_data: Dict[str, Any]) -> str:
+    def generate_contract(self, company_data: Dict[str, Any], contract_type: str = "bpo_contabil_completo") -> str:
         """
         Gera um contrato preenchido com os dados da empresa
         
         Args:
             company_data: Dados da empresa contendo as informações necessárias
+            contract_type: Tipo de contrato a ser gerado (bpo_contabil_completo, bpo_contabil_completo_bicolunado, etc.)
             
         Returns:
             Caminho para o arquivo temporário gerado
@@ -286,7 +287,20 @@ class ContractGenerationService:
             FileNotFoundError: Se template não existir
         """
         try:
-            logger.info(f"Iniciando geração de contrato para empresa: {company_data.get('razao_social', 'N/A')}")
+            logger.info(f"Iniciando geração de contrato tipo '{contract_type}' para empresa: {company_data.get('razao_social', 'N/A')}")
+            
+            # Determinar template baseado no tipo de contrato
+            template_filename = f"{contract_type}.docx"
+            template_path = os.path.join(os.path.dirname(__file__), '..', 'utils', template_filename)
+            
+            if not os.path.exists(template_path):
+                logger.warning(f"Template {template_filename} não encontrado, usando template padrão")
+                template_path = os.path.join(os.path.dirname(__file__), '..', 'utils', 'bpo_contabil_completo.docx')
+                
+            if not os.path.exists(template_path):
+                raise FileNotFoundError(f"Template não encontrado: {template_path}")
+            
+            logger.info(f"Usando template: {template_path}")
             
             # Validar dados obrigatórios
             required_fields = ['razao_social', 'cnpj', 'endereco']
@@ -300,7 +314,7 @@ class ContractGenerationService:
                 raise ValueError(f"Campos obrigatórios ausentes: {', '.join(missing_fields)}")
             
             # Carregar template
-            doc = Document(self.template_path)
+            doc = Document(template_path)
             
             # Gerar texto dinâmico das empresas BPO e lista para assinaturas
             empresas_bpo_texto, empresas_bpo_lista = self._extract_bpo_companies(company_data)

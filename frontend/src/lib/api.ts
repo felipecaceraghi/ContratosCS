@@ -132,8 +132,11 @@ export const contractsAPI = {
     return response.data;
   },
 
-  generateIndividual: async (cod: string) => {
-    const response = await api.post('/api/contracts/generate-individual', { cod });
+  generateIndividual: async (cod: string, contractType?: string) => {
+    const response = await api.post('/api/contracts/generate-individual', { 
+      cod,
+      contract_type: contractType 
+    });
     return response.data;
   },
 

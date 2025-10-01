@@ -11,6 +11,7 @@ import json
 from services.contract_generation_service import ContractGenerationService
 from services.excel_sync_service import ExcelSyncService
 from models.companies import get_company_details, search_companies
+from utils.db_utils import safe_db_query, safe_db_execute, get_db_connection
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -57,21 +58,17 @@ def generate_contract():
             # Geração por grupo - buscar todas as empresas do grupo
             logger.info(f"Usuário {user_id} solicitou geração de contratos para grupo: {group_name}")
             
-            import sqlite3
             db_path = os.getenv('DATABASE_PATH', 'infra/contracts.db')
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
             
-            # Buscar todas as empresas do grupo
-            cursor.execute('''
-                SELECT * FROM companies_data 
-                WHERE group_name = ?
-                ORDER BY cod
-            ''', (group_name,))
-            
-            companies = cursor.fetchall()
-            conn.close()
+            # Buscar todas as empresas do grupo usando função segura
+            companies = safe_db_query(
+                db_path,
+                '''SELECT * FROM companies_data 
+                   WHERE group_name = ?
+                   ORDER BY cod''',
+                (group_name,),
+                fetch_one=False
+            )
             
             if not companies:
                 return jsonify({
@@ -201,21 +198,19 @@ def generate_individual_contract():
             }), 400
         
         cod = data['cod']
-        logger.info(f"Usuário {user_id} solicitou geração de contrato para empresa: {cod}")
+        contract_type = data.get('contract_type', 'bpo_contabil_completo')  # Default para backward compatibility
+        logger.info(f"Usuário {user_id} solicitou geração de contrato tipo '{contract_type}' para empresa: {cod}")
         
-        # Buscar dados da empresa na tabela companies_data
+        # Buscar dados da empresa na tabela companies_data usando função segura
         db_path = os.getenv('DATABASE_PATH', 'infra/contracts.db')
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
         
-        cursor.execute('''
-            SELECT * FROM companies_data 
-            WHERE cod = ?
-        ''', (cod,))
-        
-        company_row = cursor.fetchone()
-        conn.close()
+        company_row = safe_db_query(
+            db_path,
+            '''SELECT * FROM companies_data 
+               WHERE cod = ?''',
+            (cod,),
+            fetch_one=True
+        )
         
         if not company_row:
             return jsonify({
@@ -269,7 +264,7 @@ def generate_individual_contract():
         
         # Gerar contrato
         contract_service = ContractGenerationService()
-        contract_path = contract_service.generate_contract(contract_data)
+        contract_path = contract_service.generate_contract(contract_data, contract_type=contract_type)
         
         # Retornar informações do arquivo gerado
         filename = os.path.basename(contract_path)

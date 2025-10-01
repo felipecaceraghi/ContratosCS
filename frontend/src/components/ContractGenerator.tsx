@@ -16,6 +16,7 @@ interface ContractGeneratorProps {
     group_name?: string;
   }>;
   onClearSelection?: () => void;
+  contractType?: string;
 }
 
 interface GenerationStep {
@@ -38,7 +39,8 @@ interface GroupProgress {
 
 const ContractGenerator: React.FC<ContractGeneratorProps> = ({ 
   selectedCompanies, 
-  onClearSelection 
+  onClearSelection,
+  contractType = "bpo_contabil_completo" // default para backward compatibility
 }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -158,7 +160,7 @@ const ContractGenerator: React.FC<ContractGeneratorProps> = ({
 
     try {
       // Gerar contrato para empresa individual
-      const response = await contractsAPI.generateIndividual(step.company.cod);
+      const response = await contractsAPI.generateIndividual(step.company.cod, contractType);
       
       if (response.success) {
         // Contrato gerado

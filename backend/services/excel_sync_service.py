@@ -7,6 +7,7 @@ import tempfile
 import urllib.parse
 import json
 from dotenv import load_dotenv
+from utils.db_utils import safe_db_query, safe_db_execute, get_db_connection, retry_db_operation
 
 load_dotenv()
 
@@ -369,12 +370,13 @@ class ExcelSyncService:
             
         return False
     
+    @retry_db_operation(max_retries=5, delay=0.2)
     def _sync_to_database(self, companies_data):
         """
         Sincroniza dados com o banco SQLite - tabelas companies e companies_data
         """
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = get_db_connection(self.db_path, timeout=60.0)
             cursor = conn.cursor()
             
             # === TABELA COMPANIES ===
@@ -419,58 +421,66 @@ class ExcelSyncService:
             companies_data_new = 0
             companies_data_updated = 0
             
-            for company in companies_data:
-                cod = company['cod']
-                name = company.get('name')
-                group_name = company.get('group_name')
-                extra_data = company.get('extra_data', {})
-                extra_data_json = json.dumps(extra_data, ensure_ascii=False)
+            # Processar em lotes para reduzir tempo de lock
+            batch_size = 100
+            for i in range(0, len(companies_data), batch_size):
+                batch = companies_data[i:i + batch_size]
                 
-                # === SINCRONIZAR TABELA COMPANIES ===
-                cursor.execute('SELECT cod FROM companies WHERE cod = ?', (cod,))
-                existing_company = cursor.fetchone()
+                for company in batch:
+                    cod = company['cod']
+                    name = company.get('name')
+                    group_name = company.get('group_name')
+                    extra_data = company.get('extra_data', {})
+                    extra_data_json = json.dumps(extra_data, ensure_ascii=False)
+                    
+                    # === SINCRONIZAR TABELA COMPANIES ===
+                    cursor.execute('SELECT cod FROM companies WHERE cod = ?', (cod,))
+                    existing_company = cursor.fetchone()
+                    
+                    if existing_company:
+                        # Atualizar company existente
+                        cursor.execute('''
+                            UPDATE companies 
+                            SET name = ?, group_name = ?
+                            WHERE cod = ?
+                        ''', (name, group_name, cod))
+                        companies_updated += 1
+                        print(f"🔄 Company atualizada: {cod} - {name}")
+                    else:
+                        # Inserir nova company
+                        cursor.execute('''
+                            INSERT INTO companies (cod, name, group_name)
+                            VALUES (?, ?, ?)
+                        ''', (cod, name, group_name))
+                        companies_new += 1
+                        print(f"➕ Company nova: {cod} - {name}")
+                    
+                    # === SINCRONIZAR TABELA COMPANIES_DATA ===
+                    cursor.execute('SELECT cod FROM companies_data WHERE cod = ?', (cod,))
+                    existing_data = cursor.fetchone()
+                    
+                    if existing_data:
+                        # Atualizar companies_data existente
+                        cursor.execute('''
+                            UPDATE companies_data 
+                            SET name = ?, group_name = ?, companie_data = ?
+                            WHERE cod = ?
+                        ''', (name, group_name, extra_data_json, cod))
+                        companies_data_updated += 1
+                        print(f"🔄 CompanyData atualizada: {cod}")
+                    else:
+                        # Inserir nova companies_data
+                        cursor.execute('''
+                            INSERT INTO companies_data (cod, name, group_name, companie_data)
+                            VALUES (?, ?, ?, ?)
+                        ''', (cod, name, group_name, extra_data_json))
+                        companies_data_new += 1
+                        print(f"➕ CompanyData nova: {cod}")
                 
-                if existing_company:
-                    # Atualizar company existente
-                    cursor.execute('''
-                        UPDATE companies 
-                        SET name = ?, group_name = ?
-                        WHERE cod = ?
-                    ''', (name, group_name, cod))
-                    companies_updated += 1
-                    print(f"🔄 Company atualizada: {cod} - {name}")
-                else:
-                    # Inserir nova company
-                    cursor.execute('''
-                        INSERT INTO companies (cod, name, group_name)
-                        VALUES (?, ?, ?)
-                    ''', (cod, name, group_name))
-                    companies_new += 1
-                    print(f"➕ Company nova: {cod} - {name}")
-                
-                # === SINCRONIZAR TABELA COMPANIES_DATA ===
-                cursor.execute('SELECT cod FROM companies_data WHERE cod = ?', (cod,))
-                existing_data = cursor.fetchone()
-                
-                if existing_data:
-                    # Atualizar companies_data existente
-                    cursor.execute('''
-                        UPDATE companies_data 
-                        SET name = ?, group_name = ?, companie_data = ?
-                        WHERE cod = ?
-                    ''', (name, group_name, extra_data_json, cod))
-                    companies_data_updated += 1
-                    print(f"🔄 CompanyData atualizada: {cod}")
-                else:
-                    # Inserir nova companies_data
-                    cursor.execute('''
-                        INSERT INTO companies_data (cod, name, group_name, companie_data)
-                        VALUES (?, ?, ?, ?)
-                    ''', (cod, name, group_name, extra_data_json))
-                    companies_data_new += 1
-                    print(f"➕ CompanyData nova: {cod}")
+                # Commit a cada lote para reduzir tempo de transação
+                conn.commit()
+                print(f"✅ Lote {i//batch_size + 1} processado")
             
-            conn.commit()
             conn.close()
             
             print(f"✅ Companies: {companies_new} novas, {companies_updated} atualizadas")

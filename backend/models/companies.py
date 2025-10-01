@@ -6,13 +6,9 @@ import json
 import os
 import logging
 from typing import Dict, Any, List, Optional
+from utils.db_utils import safe_db_query, safe_db_execute, get_db_connection
 
 logger = logging.getLogger(__name__)
-
-def get_db_connection():
-    """Cria conexão com o banco de dados"""
-    db_path = os.getenv('DATABASE_PATH', 'infra/contracts.db')
-    return sqlite3.connect(db_path)
 
 def search_companies(query: str = "", limit: int = 50) -> List[Dict[str, Any]]:
     """
@@ -26,29 +22,34 @@ def search_companies(query: str = "", limit: int = 50) -> List[Dict[str, Any]]:
         Lista de empresas encontradas
     """
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        db_path = os.getenv('DATABASE_PATH', 'infra/contracts.db')
         
         if query:
             # Buscar por nome ou código
             search_query = f"%{query}%"
-            cursor.execute(
+            rows = safe_db_query(
+                db_path,
                 'SELECT cod, name, group_name FROM companies WHERE name LIKE ? OR cod LIKE ? LIMIT ?',
-                (search_query, search_query, limit)
+                (search_query, search_query, limit),
+                fetch_one=False
             )
         else:
             # Buscar todas (limitado)
-            cursor.execute('SELECT cod, name, group_name FROM companies LIMIT ?', (limit,))
+            rows = safe_db_query(
+                db_path,
+                'SELECT cod, name, group_name FROM companies LIMIT ?',
+                (limit,),
+                fetch_one=False
+            )
         
         companies = []
-        for row in cursor.fetchall():
+        for row in rows:
             companies.append({
                 'cod': row[0],
                 'name': row[1],
                 'group_name': row[2]
             })
         
-        conn.close()
         return companies
         
     except Exception as e:
@@ -66,17 +67,23 @@ def get_company_details(company_identifier: str) -> Optional[Dict[str, Any]]:
         Dados completos da empresa ou None se não encontrada
     """
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        db_path = os.getenv('DATABASE_PATH', 'infra/contracts.db')
         
         # Primeiro, tentar buscar por código exato
-        cursor.execute('SELECT cod, name, group_name FROM companies WHERE cod = ?', (company_identifier,))
-        company_basic = cursor.fetchone()
+        company_basic = safe_db_query(
+            db_path,
+            'SELECT cod, name, group_name FROM companies WHERE cod = ?',
+            (company_identifier,),
+            fetch_one=True
+        )
         
         # Se não encontrou por código, tentar buscar por CNPJ nos dados detalhados
         if not company_basic:
-            cursor.execute('SELECT cod, companie_data FROM companies_data')
-            all_data = cursor.fetchall()
+            all_data = safe_db_query(
+                db_path,
+                'SELECT cod, companie_data FROM companies_data',
+                fetch_one=False
+            )
             
             for cod, data_json in all_data:
                 if data_json:
@@ -91,21 +98,28 @@ def get_company_details(company_identifier: str) -> Optional[Dict[str, Any]]:
                             
                             if cnpj_clean == identifier_clean:
                                 # Encontrou por CNPJ, agora buscar dados básicos
-                                cursor.execute('SELECT cod, name, group_name FROM companies WHERE cod = ?', (cod,))
-                                company_basic = cursor.fetchone()
+                                company_basic = safe_db_query(
+                                    db_path,
+                                    'SELECT cod, name, group_name FROM companies WHERE cod = ?',
+                                    (cod,),
+                                    fetch_one=True
+                                )
                                 break
                     except:
                         continue
         
         if not company_basic:
-            conn.close()
             return None
         
         company_cod = company_basic[0]
         
         # Buscar dados detalhados
-        cursor.execute('SELECT companie_data FROM companies_data WHERE cod = ?', (company_cod,))
-        company_data_row = cursor.fetchone()
+        company_data_row = safe_db_query(
+            db_path,
+            'SELECT companie_data FROM companies_data WHERE cod = ?',
+            (company_cod,),
+            fetch_one=True
+        )
         
         company_details = {}
         if company_data_row and company_data_row[0]:
@@ -114,8 +128,6 @@ def get_company_details(company_identifier: str) -> Optional[Dict[str, Any]]:
             except:
                 logger.warning(f"Erro ao fazer parse do JSON para empresa {company_cod}")
                 company_details = {}
-        
-        conn.close()
         
         # Montar resultado final
         result = {
@@ -162,14 +174,15 @@ def count_companies() -> int:
         Número total de empresas
     """
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        db_path = os.getenv('DATABASE_PATH', 'infra/contracts.db')
         
-        cursor.execute('SELECT COUNT(*) FROM companies')
-        count = cursor.fetchone()[0]
+        result = safe_db_query(
+            db_path,
+            'SELECT COUNT(*) FROM companies',
+            fetch_one=True
+        )
         
-        conn.close()
-        return count
+        return result[0] if result else 0
         
     except Exception as e:
         logger.error(f"Erro ao contar empresas: {str(e)}")
@@ -183,19 +196,19 @@ def get_companies_without_details() -> List[str]:
         Lista de códigos de empresas sem dados detalhados
     """
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        db_path = os.getenv('DATABASE_PATH', 'infra/contracts.db')
         
-        cursor.execute('''
-            SELECT c.cod 
-            FROM companies c 
-            LEFT JOIN companies_data cd ON c.cod = cd.cod 
-            WHERE cd.cod IS NULL OR cd.companie_data IS NULL OR cd.companie_data = ''
-        ''')
+        rows = safe_db_query(
+            db_path,
+            '''SELECT c.cod 
+               FROM companies c 
+               LEFT JOIN companies_data cd ON c.cod = cd.cod 
+               WHERE cd.cod IS NULL OR cd.companie_data IS NULL OR cd.companie_data = ''
+            ''',
+            fetch_one=False
+        )
         
-        codes = [row[0] for row in cursor.fetchall()]
-        
-        conn.close()
+        codes = [row[0] for row in rows] if rows else []
         return codes
         
     except Exception as e:

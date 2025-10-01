@@ -37,6 +37,13 @@ export default function HomePage() {
       href: "/contratos/bpo-contabil",
       isAvailable: true
     },
+    {
+      title: "BPO Contábil Completo - Bicolunado",
+      description: "Contrato completo para serviços de BPO contábil com layout bicolunado, ideal para apresentação mais compacta e organizada dos termos contratuais.",
+      icon: "📋",
+      href: "/contratos/bpo-contabil-bicolunado",
+      isAvailable: true
+    },
     // Aqui você pode adicionar outros tipos de contratos no futuro
     // {
     //   title: "Consultoria Fiscal",
