@@ -114,14 +114,15 @@ export default function HomePage() {
         {/* Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {contractTypes.map((contract, index) => (
-            <ContractCard
-              key={index}
-              title={contract.title}
-              description={contract.description}
-              icon={contract.icon}
-              href={contract.href}
-              isAvailable={contract.isAvailable}
-            />
+            <div key={index} className="h-full">
+              <ContractCard
+                title={contract.title}
+                description={contract.description}
+                icon={contract.icon}
+                href={contract.href}
+                isAvailable={contract.isAvailable}
+              />
+            </div>
           ))}
         </div>
 

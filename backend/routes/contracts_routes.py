@@ -140,13 +140,16 @@ def generate_contract():
                 }), 400
             
             # Preparar dados para o template
-            contract_data = {
+            contract_data = company_data.copy()  # Usar todos os dados da empresa
+            
+            # Garantir que os campos principais estejam no formato correto
+            contract_data.update({
                 'razao_social': company_data.get('Razão Social'),  # Campo exato como especificado
                 'cnpj': company_data.get('CNPJ'),                  # Campo exato como especificado
                 'endereco': endereco                               # Campo "Endereço" como especificado
-            }
+            })
             
-            logger.info(f"Dados preparados para contrato: {contract_data}")
+            logger.info(f"Dados preparados para contrato: razao_social={contract_data.get('razao_social')}, cnpj={contract_data.get('cnpj')}")
             
             # Gerar contrato
             contract_service = ContractGenerationService()
@@ -254,13 +257,16 @@ def generate_individual_contract():
             }), 400
         
         # Preparar dados para o template
-        contract_data = {
+        contract_data = companie_data.copy()  # Usar todos os dados da empresa
+        
+        # Garantir que os campos principais estejam no formato correto
+        contract_data.update({
             'razao_social': razao_social,
             'cnpj': cnpj,
             'endereco': endereco
-        }
+        })
         
-        logger.info(f"Dados preparados para contrato: {contract_data}")
+        logger.info(f"Dados preparados para contrato: razao_social={razao_social}, cnpj={cnpj}")
         
         # Gerar contrato
         contract_service = ContractGenerationService(contract_type=contract_type)

@@ -142,28 +142,55 @@ class ContractGenerationService:
             # Carregar template
             doc = Document(self.template_path)
             
-            # Encontrar e substituir as empresas de assinatura específicas
-            company_paragraphs = {
-                'GF ACCOUNTING LTDA.': None,
-                'E. REEVE MUSK SERVICOS DE CONTABILIDADE LTDA.': None,
-                'HR HILL SERVICOS ADMINISTRATIVOS LTDA.': None
-            }
+            # Mapear parágrafos de assinatura por nome da empresa
+            # Baseado na estrutura encontrada: S.JOBS (17), E. REEVE MUSK (20), GF PAYROLL (25)
+            signature_paragraphs = {}
             
-            # Encontrar os parágrafos das empresas antigas
+            # Encontrar os parágrafos das empresas de assinatura
             for i, paragraph in enumerate(doc.paragraphs):
                 text = paragraph.text.strip()
-                for old_company in company_paragraphs.keys():
-                    if text == old_company:
-                        company_paragraphs[old_company] = i
-                        logger.info(f"Encontrado parágrafo {i} com empresa: {old_company}")
+                if text == 'S.JOBS.':
+                    signature_paragraphs['S.JOBS'] = i
+                elif text == 'E. REEVE MUSK SERVIÇOS DE CONTABILIDADE LTDA.':
+                    signature_paragraphs['E.REEVE'] = i
+                elif text == 'GF PAYROLL.':
+                    signature_paragraphs['GF PAYROLL'] = i
+                    
+            logger.info(f"Parágrafos de assinatura encontrados: {signature_paragraphs}")
             
-            # Substituir pelas novas empresas (usar apenas as primeiras 3)
-            company_names = [old_name for old_name in company_paragraphs.keys()]
-            for i, (old_company, paragraph_index) in enumerate(company_paragraphs.items()):
-                if paragraph_index is not None and i < len(bpo_companies):
-                    new_company = bpo_companies[i]
-                    doc.paragraphs[paragraph_index].text = new_company['nome'].upper()
-                    logger.info(f"Substituído '{old_company}' por '{new_company['nome'].upper()}'")
+            # Limpar todos os parágrafos de assinatura existentes
+            for company_key, paragraph_index in signature_paragraphs.items():
+                doc.paragraphs[paragraph_index].text = ""
+                logger.info(f"Limpado parágrafo {paragraph_index} da empresa {company_key}")
+            
+            # Adicionar novas empresas nos parágrafos corretos
+            available_positions = sorted(signature_paragraphs.values())
+            
+            for i, bpo_company in enumerate(bpo_companies):
+                if i < len(available_positions):
+                    paragraph_index = available_positions[i]
+                    company_name = bpo_company['nome'].upper()
+                    
+                    # Simplificar o nome para assinatura (remover LTDA e deixar mais curto)
+                    signature_name = company_name
+                    if 'E. REEVE MUSK' in company_name:
+                        signature_name = 'E. REEVE MUSK SERVIÇOS DE CONTABILIDADE LTDA.'
+                    elif 'GF SERVICOS DE CONTABILIDADE' in company_name:
+                        signature_name = 'GF SERVIÇOS.'
+                    elif 'HR HILL' in company_name:
+                        signature_name = 'HR HILL.'
+                    elif 'S.JOBS' in company_name:
+                        signature_name = 'S.JOBS.'
+                    elif 'GF PAYROLL' in company_name:
+                        signature_name = 'GF PAYROLL.'
+                    else:
+                        # Para outras empresas, usar nome simplificado
+                        signature_name = company_name.replace(' LTDA.', '.').replace(' LTDA', '.')
+                        if not signature_name.endswith('.'):
+                            signature_name += '.'
+                    
+                    doc.paragraphs[paragraph_index].text = signature_name
+                    logger.info(f"Adicionado '{signature_name}' no parágrafo {paragraph_index}")
             
             # Salvar template modificado temporariamente
             temp_template_path = self.template_path.replace('.docx', '_temp.docx')
@@ -187,19 +214,34 @@ class ContractGenerationService:
         Returns:
             Tupla com: (texto_portugues, texto_ingles, lista_empresas)
         """
+        logger.info(f"=== Iniciando extração de empresas BPO ===")
+        logger.info(f"Dados recebidos - campos disponíveis: {list(company_data.keys())}")
+        logger.info(f"Amostra dos dados: {dict(list(company_data.items())[:5])}")  # Primeiros 5 campos
+        
         try:
-            # Campos BPO para verificar
-            bpo_fields = [
-                'BPO Contábil Faturado',
-                'BPO Fiscal Faturado', 
-                'BPO Folha Faturado',
-                'BPO Financeiro Faturado',
-                'BPO RH Faturado',
-                'BPO Legal Faturado',
-                'Diversos In. Faturado',
-                'Implantação Faturado'
-            ]
+            # Verificar se temos dados completos da empresa ou apenas dados básicos
+            basic_fields = {'razao_social', 'cnpj', 'endereco'}
+            has_only_basic_data = (
+                len(set(company_data.keys()) - basic_fields) == 0 or
+                all(key in basic_fields for key in company_data.keys() if company_data.get(key))
+            )
             
+            if has_only_basic_data:
+                logger.warning("Detectados apenas dados básicos da empresa, usando empresas BPO padrão")
+                bpo_companies = {"GF SERVIÇOS", "E.REEVE SERVIÇOS", "HR HILL"}
+            else:
+                # Campos BPO para verificar
+                bpo_fields = [
+                    'BPO Contábil Faturado',
+                    'BPO Fiscal Faturado', 
+                    'BPO Folha Faturado',
+                    'BPO Financeiro Faturado',
+                    'BPO RH Faturado',
+                    'BPO Legal Faturado',
+                    'Diversos In. Faturado',
+                    'Implantação Faturado'
+                ]
+                
             # Extrair valores únicos e não nulos dos campos BPO
             bpo_companies = set()
             
@@ -220,12 +262,25 @@ class ContractGenerationService:
             for field in bpo_fields:
                 value = data_source.get(field)
                 if value and value.strip() and value.lower() not in ['null', 'none', '']:
-                    bpo_companies.add(value.strip())
-                    logger.info(f"Encontrada empresa BPO: {field} = {value}")
+                    # Normalizar o nome para evitar duplicatas
+                    normalized_name = value.strip().replace('.', '').replace(' ', '').upper()
+                    # Usar o valor original como chave, mas evitar duplicatas baseado no nome normalizado
+                    found_duplicate = False
+                    for existing_company in bpo_companies:
+                        existing_normalized = existing_company.replace('.', '').replace(' ', '').upper()
+                        if existing_normalized == normalized_name:
+                            found_duplicate = True
+                            break
+                    
+                    if not found_duplicate:
+                        bpo_companies.add(value.strip())
+                        logger.info(f"Encontrada empresa BPO: {field} = {value}")
+                    else:
+                        logger.info(f"Empresa BPO duplicada ignorada: {field} = {value}")
             
             # Se não encontrou nenhuma empresa BPO, usar um padrão
             if not bpo_companies:
-                logger.warning("Nenhuma empresa BPO encontrada, usando empresas padrão")
+                logger.warning("Nenhuma empresa BPO encontrada nos dados, usando empresas padrão")
                 bpo_companies = {"GF SERVIÇOS", "E.REEVE SERVIÇOS", "HR HILL"}
             
             # Endereço padrão para todas as empresas
@@ -234,6 +289,7 @@ class ContractGenerationService:
             
             # Gerar texto formatado usando fuzzy matching
             companies_list = sorted(list(bpo_companies))
+            logger.info(f"Lista de empresas BPO ordenada: {companies_list}")
             letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']  # Suporte até 10 empresas
             
             formatted_companies_pt = []
@@ -246,6 +302,7 @@ class ContractGenerationService:
                     
                     # Buscar dados da empresa usando fuzzy matching
                     empresa_data = self._find_bpo_company_by_fuzzy_match(bpo_name)
+                    logger.info(f"Processando empresa {i+1}/{len(companies_list)}: '{bpo_name}' -> {empresa_data}")
                     
                     if empresa_data:
                         razao_social = empresa_data['razao_social']
@@ -261,6 +318,8 @@ class ContractGenerationService:
                         'nome': razao_social,
                         'cnpj': cnpj
                     })
+                    
+                    logger.info(f"Adicionada empresa para contrato: {razao_social} ({cnpj})")
                     
                     # Texto em português
                     formatted_text_pt = (
@@ -290,6 +349,9 @@ class ContractGenerationService:
             result_en = join_companies(formatted_companies_en, "and") + ", all herein represented in accordance with their corporate documents, hereinafter referred to simply as the CONTRACTED PARTY;"
             
             logger.info(f"Texto BPO gerado com {len(companies_for_signature)} empresas")
+            logger.info(f"Texto completo PT: {result_pt[:500]}...")  # Primeiros 500 caracteres
+            logger.info(f"Texto completo EN: {result_en[:500]}...")  # Primeiros 500 caracteres
+            
             return result_pt, result_en, companies_for_signature
             
         except Exception as e:
@@ -373,18 +435,45 @@ class ContractGenerationService:
             
             # Substituir campos nos parágrafos (atualizado para negrito)
             total_replacements = 0
+            
+            # Primeiro, verificar e substituir nas tabelas (onde estão as empresas BPO)
+            for table_idx, table in enumerate(doc.tables):
+                for row_idx, row in enumerate(table.rows):
+                    for cell_idx, cell in enumerate(row.cells):
+                        original_text = cell.text.strip()
+                        new_text = original_text
+                        
+                        # Substituir texto em português das empresas BPO (buscar por S.JOBS)
+                        if 'S.JOBS SERVIÇOS DE CONTABILIDADE LTDA.' in original_text and 'inscrita no CNPJ' in original_text:
+                            logger.info(f"Substituindo célula da tabela {table_idx}[{row_idx}][{cell_idx}] com texto dinâmico das empresas BPO (PT)")
+                            new_text = empresas_bpo_texto_pt
+                            total_replacements += 1
+                        # Substituir texto em inglês das empresas BPO (buscar por enrolled with CNPJ)
+                        elif 'enrolled with CNPJ under No.' in original_text and 'CONTRACTED PARTY' in original_text:
+                            logger.info(f"Substituindo célula da tabela {table_idx}[{row_idx}][{cell_idx}] com texto dinâmico das empresas BPO (EN)")
+                            new_text = empresas_bpo_texto_en
+                            total_replacements += 1
+                        # Remover textos indesejados nas tabelas
+                        elif 'ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO' in original_text:
+                            new_text = original_text.replace('*******ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO *********', '')
+                            new_text = new_text.replace('ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO', '')
+                            total_replacements += 1
+                            logger.info("Removido texto indesejado da tabela")
+                        else:
+                            # Substituir placeholders básicos
+                            for placeholder, value in field_mapping.items():
+                                if placeholder in new_text:
+                                    new_text = new_text.replace(placeholder, str(value))
+                                    total_replacements += 1
+                                    logger.debug(f"Substituído '{placeholder}' por '{value[:50]}...' na tabela")
+                        
+                        # Aplicar o novo texto se houve mudanças
+                        if new_text != original_text:
+                            cell.text = new_text
+            
+            # Depois, verificar parágrafos para outros placeholders
             for i, paragraph in enumerate(doc.paragraphs):
-                # Substituir texto em português das empresas BPO
-                if 'S.JOBS SERVIÇOS DE CONTABILIDADE LTDA.' in paragraph.text and 'E. REEVE MUSK SERVICOS' in paragraph.text:
-                    logger.info(f"Substituindo parágrafo {i} com texto dinâmico das empresas BPO (PT)")
-                    paragraph.text = empresas_bpo_texto_pt
-                    total_replacements += 1
-                # Substituir texto em inglês das empresas BPO
-                elif 'enrolled with CNPJ under No.' in paragraph.text and 'CONTRACTED PARTY' in paragraph.text:
-                    logger.info(f"Substituindo parágrafo {i} com texto dinâmico das empresas BPO (EN)")
-                    paragraph.text = empresas_bpo_texto_en
-                    total_replacements += 1
-                elif 'ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO' in paragraph.text:
+                if 'ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO' in paragraph.text:
                     logger.info(f"Removendo parágrafo {i} com texto indesejado")
                     paragraph.text = ""  # Limpar o parágrafo
                     total_replacements += 1
@@ -397,33 +486,9 @@ class ContractGenerationService:
                                 total_replacements += 1
                                 logger.debug(f"Substituído '{placeholder}' por '{value[:50]}...' em run do parágrafo")
             
-            # Verificar se também há campos em tabelas
-            for table in doc.tables:
-                for row in table.rows:
-                    for cell in row.cells:
-                        if cell.text:
-                            original_text = cell.text
-                            new_text = original_text
-                            
-                            # Remover textos indesejados nas tabelas
-                            if 'ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO' in new_text:
-                                new_text = new_text.replace('*******ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO *********', '')
-                                new_text = new_text.replace('ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO', '')
-                                total_replacements += 1
-                                logger.info("Removido texto indesejado da tabela")
-                            
-                            for placeholder, value in field_mapping.items():
-                                if placeholder in new_text:
-                                    new_text = new_text.replace(placeholder, str(value))
-                                    total_replacements += 1
-                                    logger.debug(f"Substituído '{placeholder}' por '{value[:50]}...' na tabela")
-                            
-                            if new_text != original_text:
-                                cell.text = new_text
-            
             logger.info(f"Total de substituições realizadas: {total_replacements}")
-            logger.info(f"Texto das empresas BPO (PT) gerado: {empresas_bpo_texto_pt[:100]}...")
-            logger.info(f"Texto das empresas BPO (EN) gerado: {empresas_bpo_texto_en[:100]}...")
+            logger.info(f"Texto das empresas BPO (PT) gerado: {empresas_bpo_texto_pt[:400]}...")
+            logger.info(f"Texto das empresas BPO (EN) gerado: {empresas_bpo_texto_en[:400]}...")
             
             # Gerar nome único para arquivo temporário
             temp_filename = f"contrato_{company_data['cnpj'].replace('.', '').replace('/', '').replace('-', '')}_{hash(company_data['razao_social']) % 10000}.docx"
