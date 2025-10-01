@@ -65,6 +65,13 @@ export default function HomePage() {
       href: "/contratos/bpo-financeiro",
       isAvailable: true
     },
+    {
+      title: "BPO Folha de Pagamento",
+      description: "",
+      icon: "💼",
+      href: "/contratos/bpo-folha",
+      isAvailable: true
+    },
     // Aqui você pode adicionar outros tipos de contratos no futuro
     // {
     //   title: "Consultoria Fiscal",
