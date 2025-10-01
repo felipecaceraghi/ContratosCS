@@ -72,6 +72,13 @@ export default function HomePage() {
       href: "/contratos/bpo-folha",
       isAvailable: true
     },
+    {
+      title: "BPO Recursos Humanos",
+      description: "",
+      icon: "👥",
+      href: "/contratos/bpo-rh",
+      isAvailable: true
+    },
     // Aqui você pode adicionar outros tipos de contratos no futuro
     // {
     //   title: "Consultoria Fiscal",

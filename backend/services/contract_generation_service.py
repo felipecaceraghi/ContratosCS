@@ -415,6 +415,7 @@ class ContractGenerationService:
             is_distrato_sem_contrato = 'termo_distrato_sem_contrato' in self.template_path.lower()
             is_bpo_financeiro = 'bpo_financeiro' in self.template_path.lower()
             is_bpo_folha = 'bpo_folha' in self.template_path.lower()
+            is_bpo_rh = 'bpo_rh' in self.template_path.lower()
             
             if is_distrato:
                 # Para termos de distrato, também usar empresas BPO dinâmicas
@@ -800,6 +801,119 @@ class ContractGenerationService:
                 
                 logger.info(f"Lista completa substituída: {empresas_lista_substituida}")
                 logger.info(f"Total de substituições realizadas no BPO Folha: {total_replacements}")
+                logger.info(f"Texto das empresas BPO (PT) gerado: {empresas_bpo_texto_pt[:400]}...")
+                logger.info(f"Texto das empresas BPO (EN) gerado: {empresas_bpo_texto_en[:400]}...")
+                
+            elif is_bpo_rh:
+                # Lógica específica para BPO Recursos Humanos
+                logger.info("Detectado contrato BPO Recursos Humanos")
+                
+                # Carregar template
+                doc = Document(self.template_path)
+                
+                # Gerar texto dinâmico das empresas BPO e lista para assinaturas
+                empresas_bpo_texto_pt, empresas_bpo_texto_en, empresas_bpo_lista = self._extract_bpo_companies(company_data)
+                
+                # Gerar seção de assinaturas dinamicamente
+                self._generate_signature_section(empresas_bpo_lista)
+                
+                # Recarregar template após modificar assinaturas
+                doc = Document(self.template_path)
+                
+                # Mapeamento de campos básicos para BPO RH
+                field_mapping = {
+                    '[RAZÃO SOCIAL]': company_data['razao_social'],
+                    '[CNPJ]': company_data['cnpj'],
+                    '[ENDEREÇO]': company_data['endereco'],
+                    '[COMPANY NAME]': company_data['razao_social'],
+                    '[ADDRESS]': company_data['endereco']
+                }
+                
+                logger.info(f"Campos BPO RH a serem substituídos: {list(field_mapping.keys())}")
+                
+                # Substituir campos nos parágrafos e tabelas
+                total_replacements = 0
+                empresas_lista_substituida = False  # Flag para lista inicial
+                
+                # Primeiro, verificar e substituir nas tabelas (onde podem estar as empresas BPO)
+                for table_idx, table in enumerate(doc.tables):
+                    for row_idx, row in enumerate(table.rows):
+                        for cell_idx, cell in enumerate(row.cells):
+                            original_text = cell.text.strip()
+                            new_text = original_text
+                            
+                            # Substituir texto em português das empresas BPO - lista completa
+                            if not empresas_lista_substituida and len(original_text) > 200 and \
+                               (('S.JOBS SERVIÇOS DE CONTABILIDADE LTDA.' in original_text and 'GF PAYROLL LTDA.' in original_text) or \
+                                ('GO FURTHER GROUP' in original_text and 'grupo de empresas independentes' in original_text)):
+                                logger.info(f"Substituindo célula da tabela {table_idx}[{row_idx}][{cell_idx}] com lista completa das empresas BPO")
+                                new_text = empresas_bpo_texto_pt
+                                total_replacements += 1
+                                empresas_lista_substituida = True
+                            # Substituir texto em inglês das empresas BPO
+                            elif 'enrolled with CNPJ under No.' in original_text and 'CONTRACTED PARTY' in original_text:
+                                logger.info(f"Substituindo célula da tabela {table_idx}[{row_idx}][{cell_idx}] com texto dinâmico das empresas BPO (EN)")
+                                new_text = empresas_bpo_texto_en
+                                total_replacements += 1
+                            # Remover textos indesejados nas tabelas
+                            elif 'ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO' in original_text:
+                                new_text = original_text.replace('*******ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO *********', '')
+                                new_text = new_text.replace('ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO', '')
+                                total_replacements += 1
+                                logger.info("Removido texto indesejado da tabela")
+                            else:
+                                # Substituir placeholders básicos
+                                for placeholder, value in field_mapping.items():
+                                    if placeholder in new_text:
+                                        new_text = new_text.replace(placeholder, str(value))
+                                        total_replacements += 1
+                                        logger.debug(f"Substituído '{placeholder}' por '{value[:50]}...' na tabela")
+                            
+                            # Aplicar o novo texto se houve mudanças
+                            if new_text != original_text:
+                                cell.text = new_text
+                
+                # Depois verificar nos parágrafos 
+                for i, paragraph in enumerate(doc.paragraphs):
+                    original_text = paragraph.text.strip()
+                    new_text = original_text
+                    
+                    # 1. Substituir a lista completa das empresas
+                    if not empresas_lista_substituida and len(original_text) > 200 and \
+                       (('S.JOBS SERVIÇOS DE CONTABILIDADE LTDA.' in original_text and 'GF PAYROLL LTDA.' in original_text) or \
+                        ('GO FURTHER GROUP' in original_text and 'grupo de empresas independentes' in original_text)):
+                        logger.info(f"Substituindo parágrafo {i} com lista completa das empresas BPO")
+                        new_text = empresas_bpo_texto_pt
+                        total_replacements += 1
+                        empresas_lista_substituida = True
+                    
+                    # 2. Substituir texto em inglês das empresas BPO 
+                    elif 'enrolled with CNPJ under No.' in original_text and 'CONTRACTED PARTY' in original_text:
+                        logger.info(f"Substituindo parágrafo {i} com texto dinâmico das empresas BPO (EN)")
+                        new_text = empresas_bpo_texto_en
+                        total_replacements += 1
+                    
+                    # 3. Remover textos indesejados
+                    elif 'ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO' in original_text:
+                        new_text = original_text.replace('*******ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO *********', '')
+                        new_text = new_text.replace('ESPAÇO PROPOSITALMENTE DEIXADO EM BRANCO', '')
+                        total_replacements += 1
+                        logger.info(f"Removido texto indesejado do parágrafo {i}")
+                    
+                    # 4. Substituir placeholders básicos
+                    else:
+                        for placeholder, value in field_mapping.items():
+                            if placeholder in new_text:
+                                new_text = new_text.replace(placeholder, str(value))
+                                total_replacements += 1
+                                logger.debug(f"Substituído '{placeholder}' por '{value[:50]}...' no parágrafo {i}")
+                    
+                    # Aplicar o novo texto se houve mudanças
+                    if new_text != original_text:
+                        paragraph.text = new_text
+                
+                logger.info(f"Lista completa substituída: {empresas_lista_substituida}")
+                logger.info(f"Total de substituições realizadas no BPO RH: {total_replacements}")
                 logger.info(f"Texto das empresas BPO (PT) gerado: {empresas_bpo_texto_pt[:400]}...")
                 logger.info(f"Texto das empresas BPO (EN) gerado: {empresas_bpo_texto_en[:400]}...")
                 
