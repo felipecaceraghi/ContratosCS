@@ -204,17 +204,19 @@ class ContractGenerationService:
             # Não falhar por conta das assinaturas, continuar sem elas
             logger.warning("Continuando geração sem modificar assinaturas")
 
-    def _extract_bpo_companies(self, company_data: Dict[str, Any]) -> tuple[str, str, List[Dict[str, str]]]:
+    def _extract_bpo_companies(self, company_data: Dict[str, Any], contract_type: str = None) -> tuple[str, str, List[Dict[str, str]]]:
         """
         Extrai dinamicamente as empresas BPO dos dados da empresa e gera o texto formatado
         
         Args:
             company_data: Dados da empresa contendo campos BPO
+            contract_type: Tipo de contrato para filtrar empresas específicas
             
         Returns:
             Tupla com: (texto_portugues, texto_ingles, lista_empresas)
         """
         logger.info(f"=== Iniciando extração de empresas BPO ===")
+        logger.info(f"Tipo de contrato: {contract_type}")
         logger.info(f"Dados recebidos - campos disponíveis: {list(company_data.keys())}")
         logger.info(f"Amostra dos dados: {dict(list(company_data.items())[:5])}")  # Primeiros 5 campos
         
@@ -230,17 +232,58 @@ class ContractGenerationService:
                 logger.warning("Detectados apenas dados básicos da empresa, usando empresas BPO padrão")
                 bpo_companies = {"GF SERVIÇOS", "E.REEVE SERVIÇOS", "HR HILL"}
             else:
-                # Campos BPO para verificar
-                bpo_fields = [
-                    'BPO Contábil Faturado',
-                    'BPO Fiscal Faturado', 
-                    'BPO Folha Faturado',
-                    'BPO Financeiro Faturado',
-                    'BPO RH Faturado',
-                    'BPO Legal Faturado',
-                    'Diversos In. Faturado',
-                    'Implantação Faturado'
-                ]
+                # Definir campos BPO baseados no tipo de contrato
+                if contract_type and ('bpo_contabil' in contract_type.lower()):
+                    # Para contratos BPO Contábil: apenas empresas que faturam contábil ou fiscal
+                    bpo_fields = [
+                        'BPO Contábil Faturado',
+                        'BPO Fiscal Faturado'
+                    ]
+                    logger.info("Filtro BPO Contábil: usando apenas campos contábeis e fiscais")
+                elif contract_type and ('bpo_financeiro' in contract_type.lower()):
+                    # Para contratos BPO Financeiro: apenas empresas que faturam financeiro
+                    bpo_fields = [
+                        'BPO Financeiro Faturado'
+                    ]
+                    logger.info("Filtro BPO Financeiro: usando apenas campos financeiros")
+                elif contract_type and ('bpo_folha' in contract_type.lower()):
+                    # Para contratos BPO Folha: apenas empresas que faturam folha de pagamento
+                    bpo_fields = [
+                        'BPO Folha Faturado'
+                    ]
+                    logger.info("Filtro BPO Folha: usando apenas campos de folha de pagamento")
+                elif contract_type and ('bpo_rh' in contract_type.lower()):
+                    # Para contratos BPO RH: apenas empresas que faturam recursos humanos
+                    bpo_fields = [
+                        'BPO RH Faturado'
+                    ]
+                    logger.info("Filtro BPO RH: usando apenas campos de recursos humanos")
+                elif contract_type and ('termo_distrato' in contract_type.lower()):
+                    # Para termos de distrato: todas as empresas que faturam algum serviço
+                    bpo_fields = [
+                        'BPO Contábil Faturado',
+                        'BPO Fiscal Faturado', 
+                        'BPO Folha Faturado',
+                        'BPO Financeiro Faturado',
+                        'BPO RH Faturado',
+                        'BPO Legal Faturado',
+                        'Diversos In. Faturado',
+                        'Implantação Faturado'
+                    ]
+                    logger.info("Filtro Termo de Distrato: usando todos os campos BPO")
+                else:
+                    # Padrão: todos os campos (para backward compatibility)
+                    bpo_fields = [
+                        'BPO Contábil Faturado',
+                        'BPO Fiscal Faturado', 
+                        'BPO Folha Faturado',
+                        'BPO Financeiro Faturado',
+                        'BPO RH Faturado',
+                        'BPO Legal Faturado',
+                        'Diversos In. Faturado',
+                        'Implantação Faturado'
+                    ]
+                    logger.info("Usando todos os campos BPO (padrão)")
                 
             # Extrair valores únicos e não nulos dos campos BPO
             bpo_companies = set()
@@ -381,6 +424,32 @@ class ContractGenerationService:
             ]
             return fallback_text_pt, fallback_text_en, fallback_companies
     
+    def _get_contract_type_from_template_path(self) -> str:
+        """
+        Detecta o tipo de contrato baseado no caminho do template
+        
+        Returns:
+            Tipo do contrato como string
+        """
+        template_lower = self.template_path.lower()
+        
+        if 'bpo_contabil_completo_bicolunado' in template_lower:
+            return 'bpo_contabil_completo_bicolunado'
+        elif 'bpo_contabil_completo' in template_lower:
+            return 'bpo_contabil_completo'
+        elif 'bpo_financeiro' in template_lower:
+            return 'bpo_financeiro'
+        elif 'bpo_folha' in template_lower:
+            return 'bpo_folha'
+        elif 'bpo_rh' in template_lower:
+            return 'bpo_rh'
+        elif 'termo_distrato_sem_contrato' in template_lower:
+            return 'termo_distrato_sem_contrato'
+        elif 'termo_distrato' in template_lower:
+            return 'termo_distrato'
+        else:
+            return 'bpo_contabil_completo'  # default
+    
     def generate_contract(self, company_data: Dict[str, Any]) -> str:
         """
         Gera um contrato preenchido com os dados da empresa
@@ -411,6 +480,7 @@ class ContractGenerationService:
                 raise ValueError(f"Campos obrigatórios ausentes: {', '.join(missing_fields)}")
             
             # Detectar o tipo de contrato
+            contract_type_detected = self._get_contract_type_from_template_path()
             is_distrato = 'termo_distrato' in self.template_path.lower()
             is_distrato_sem_contrato = 'termo_distrato_sem_contrato' in self.template_path.lower()
             is_bpo_financeiro = 'bpo_financeiro' in self.template_path.lower()
@@ -422,7 +492,7 @@ class ContractGenerationService:
                 logger.info(f"Detectado termo de distrato - tipo: {'sem contrato' if is_distrato_sem_contrato else 'completo'}")
                 
                 # Gerar texto dinâmico das empresas BPO e lista para assinaturas
-                empresas_bpo_texto_pt, empresas_bpo_texto_en, empresas_bpo_lista = self._extract_bpo_companies(company_data)
+                empresas_bpo_texto_pt, empresas_bpo_texto_en, empresas_bpo_lista = self._extract_bpo_companies(company_data, contract_type_detected)
                 
                 # Carregar template
                 doc = Document(self.template_path)
@@ -574,7 +644,7 @@ class ContractGenerationService:
                 doc = Document(self.template_path)
                 
                 # Gerar texto dinâmico das empresas BPO e lista para assinaturas
-                empresas_bpo_texto_pt, empresas_bpo_texto_en, empresas_bpo_lista = self._extract_bpo_companies(company_data)
+                empresas_bpo_texto_pt, empresas_bpo_texto_en, empresas_bpo_lista = self._extract_bpo_companies(company_data, contract_type_detected)
                 
                 # Gerar seção de assinaturas dinamicamente
                 self._generate_signature_section(empresas_bpo_lista)
@@ -699,7 +769,7 @@ class ContractGenerationService:
                 doc = Document(self.template_path)
                 
                 # Gerar texto dinâmico das empresas BPO e lista para assinaturas
-                empresas_bpo_texto_pt, empresas_bpo_texto_en, empresas_bpo_lista = self._extract_bpo_companies(company_data)
+                empresas_bpo_texto_pt, empresas_bpo_texto_en, empresas_bpo_lista = self._extract_bpo_companies(company_data, contract_type_detected)
                 
                 # Gerar seção de assinaturas dinamicamente
                 self._generate_signature_section(empresas_bpo_lista)
@@ -812,7 +882,7 @@ class ContractGenerationService:
                 doc = Document(self.template_path)
                 
                 # Gerar texto dinâmico das empresas BPO e lista para assinaturas
-                empresas_bpo_texto_pt, empresas_bpo_texto_en, empresas_bpo_lista = self._extract_bpo_companies(company_data)
+                empresas_bpo_texto_pt, empresas_bpo_texto_en, empresas_bpo_lista = self._extract_bpo_companies(company_data, contract_type_detected)
                 
                 # Gerar seção de assinaturas dinamicamente
                 self._generate_signature_section(empresas_bpo_lista)
@@ -923,7 +993,7 @@ class ContractGenerationService:
                 doc = Document(self.template_path)
                 
                 # Gerar texto dinâmico das empresas BPO e lista para assinaturas
-                empresas_bpo_texto_pt, empresas_bpo_texto_en, empresas_bpo_lista = self._extract_bpo_companies(company_data)
+                empresas_bpo_texto_pt, empresas_bpo_texto_en, empresas_bpo_lista = self._extract_bpo_companies(company_data, contract_type_detected)
                 
                 # Gerar seção de assinaturas dinamicamente
                 self._generate_signature_section(empresas_bpo_lista)

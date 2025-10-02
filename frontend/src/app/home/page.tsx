@@ -160,24 +160,6 @@ export default function HomePage() {
             </div>
           ))}
         </div>
-
-        {/* Info Section */}
-        <div className="mt-12 bg-blue-50 rounded-xl p-6">
-          <div className="flex items-start space-x-4">
-            <div className="text-2xl">ℹ️</div>
-            <div>
-              <h3 className="text-lg font-semibold text-blue-900 mb-2">
-                Como funciona?
-              </h3>
-              <ul className="text-blue-800 space-y-1">
-                <li>• Selecione o tipo de contrato desejado</li>
-                <li>• Busque e selecione as empresas clientes</li>
-                <li>• O sistema gera os contratos automaticamente</li>
-                <li>• Faça o download dos documentos em PDF</li>
-              </ul>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
